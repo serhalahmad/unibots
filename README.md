@@ -15,4 +15,4 @@ Recommendations:
 
 To launch the simulation:
 1 - Source your ROS2 workspace: `source <path_to_ros2_workspace>/install/setup.bash`
-2 - `
+2 - `ros2 launch unibots_bringup launch_sim.launch.py`
