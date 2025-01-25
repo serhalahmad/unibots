@@ -1,0 +1,84 @@
+#VRML_SIM R2023b utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/floors/protos/RectangleArena.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/robots/gctronic/e-puck/protos/E-puck.proto"
+
+WorldInfo {
+}
+Viewpoint {
+  orientation -0.22282023306446908 0.07766909980960864 0.9717605953483917 2.4884070341460953
+  position 0.7489852936098149 -0.6152007485624718 0.36863672972428524
+}
+TexturedBackground {
+}
+TexturedBackgroundLight {
+}
+RectangleArena {
+}
+DEF Ball-2 Solid {
+  translation 0.12 0 0.01994740219920737
+  children [
+    Shape {
+      appearance PBRAppearance {
+      }
+      geometry Sphere {
+        radius 0.02
+      }
+    }
+  ]
+  name "solid(2)"
+  boundingObject Sphere {
+    radius 0.02
+  }
+  physics Physics {
+  }
+}
+DEF Ball-1 Solid {
+  translation 0.24 0.35 0.0199474
+  children [
+    Shape {
+      appearance PBRAppearance {
+        roughness 1
+        metalness 0
+      }
+      geometry Sphere {
+        radius 0.02
+      }
+    }
+  ]
+  name "solid(1)"
+  boundingObject Sphere {
+    radius 0.02
+  }
+  physics Physics {
+  }
+}
+DEF Ball-3 Solid {
+  translation 0.28 0.1 0.019947402199156545
+  children [
+    Shape {
+      appearance PBRAppearance {
+        roughness 1
+        metalness 0
+      }
+      geometry Sphere {
+        radius 0.02
+      }
+    }
+  ]
+  name "solid(3)"
+  boundingObject Sphere {
+    radius 0.02
+  }
+  physics Physics {
+  }
+}
+E-puck {
+  translation -0.020002 -0.36296 -0.00045539
+  rotation 0.00051505170034683 -0.0005150483451020847 0.9999997347234388 1.57080025559341
+  controller "my_controller_py"
+  camera_width 640
+  camera_height 480
+}
