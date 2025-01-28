@@ -11,13 +11,45 @@ import cv2
 import numpy as np
 from pupil_apriltags import Detector
 import os
+import math
 
 # NOTE: normally these are read from env variable
-MODEL_PATH = r"yolo11s.pt"  # Update this path
+# MODEL_PATH = r"yolo11s.pt"  # Update this path
+MODEL_PATH = r"C:\Users\Marlo\Documents\code\QMUL-Societies\QMES\unibots\src\runs\detect\train3\weights\best.pt" # custom unibots model
 # Confidence threshold for detections
-CONFIDENCE_THRESHOLD = 0.45  # Adjust as needed
+CONFIDENCE_THRESHOLD = 0.15  # Adjust as needed
 # Detection interval to manage computational load
-DETECTION_INTERVAL = 10  # Perform detection every 10 steps
+DETECTION_INTERVAL = 25  # Perform detection every 10 steps
+CHASE_BALL = False
+GO_TO = True
+COLLECT_BALL_DATA = True
+
+TAG_POSITIONS = {
+    0:  (150, 2000),
+    1:  (450, 2000),
+    2:  (750, 2000),
+    3:  (1250, 2000),
+    4:  (1550, 2000),
+    5:  (1850, 2000),
+    6:  (2000, 1850),
+    7:  (2000, 1550),
+    8:  (2000, 1250),
+    9:  (2000, 750),
+    10: (2000, 450),
+    11: (2000, 150),
+    12: (1850, 0),
+    13: (1550, 0),
+    14: (1250, 0),
+    15: (750, 0),
+    16: (450, 0),
+    17: (150, 0),
+    18: (0, 150),
+    19: (0, 450),
+    20: (0, 750),
+    21: (0, 1250),
+    22: (0, 1550),
+    23: (0, 1850),
+}
 
 
 def load_model(model_pth=MODEL_PATH):
@@ -32,7 +64,6 @@ def load_model(model_pth=MODEL_PATH):
         print(f"Error loading YOLOv11 model: {e}")
         sys.exit(1)
     return model
-
 
 def init_environment(robot):
     """
@@ -54,6 +85,28 @@ def init_environment(robot):
 
     return timestep, camera, left_motor, right_motor
 
+def bytes_to_numpy(img_bytes, camera):
+    """
+    Converts image bytes from the camera to a writeable NumPy array.
+
+    Args:
+        img_bytes (bytes): Image data from the camera.
+        camera (RobotCamera): The camera device.
+
+    Returns:
+        numpy.ndarray or None: RGB image as a NumPy array or None if conversion fails.
+    """
+    try:
+        width = camera.getWidth()
+        height = camera.getHeight()
+        # Convert the raw image data to a NumPy array
+        img_array = np.frombuffer(img_bytes, dtype=np.uint8).reshape((height, width, 4))
+        # Convert RGBA to RGB by removing the alpha channel and make a copy to ensure writeability
+        img_rgb = img_array[:, :, :3].copy()
+        return img_rgb
+    except Exception as e:
+        print(f"Error converting bytes to NumPy array: {e}")
+        return None
 
 def detection(img, camera, model):
     x_center_int = None
@@ -70,12 +123,6 @@ def detection(img, camera, model):
 
         # Create a PIL Image from the NumPy array
         image = Image.fromarray(img_rgb)
-
-        # Optionally, resize the image to reduce processing time
-        # Uncomment the following line to resize
-        # image = image.resize((320, 240))  # Example size
-
-        # Convert the PIL Image to a format compatible with YOLOv11 (NumPy array)
         image_np = np.array(image)
         print("Model inference starting...")
 
@@ -115,14 +162,164 @@ def detection(img, camera, model):
         # continue  # Continue the loop even if an error occurs
     return x_center_int
 
-def go_to(img, camera, left_motor, right_motor, forward_speed, destination='start'):
-    if destination == 'start':
-        IMAGE_PATH = r"C:\Users\Marlo\Documents\code\QMUL-Societies\QMES\Unibots-karl\WeBots\many-tags-4.png"
-        randomVal = np.random.randint(0, 100000)
-        OUTPUT_PATH = f"annotated_image_{randomVal}.jpg"
-        VISUALIZE = False  # Set to False if you don't want to display the image
 
-        detect_apriltags(image=img, output_path=OUTPUT_PATH, visualize=VISUALIZE)
+
+
+def estimate_robot_pose(detections):
+    """
+    Given a list of tag detections (each with a known global TAG_POSITIONS[id]
+    and a relative robot->tag transform), estimate the robot's global pose.
+    
+    For simplicity, we might:
+       1) For each detected tag, know the tag's (x_t, y_t).
+       2) Use the detection's distance + bearing to guess the robot's position
+          (x_r, y_r) = (x_t, y_t) - relative_offset(...)
+       3) Possibly average the positions from each detection.
+       4) Estimate heading from e.g. the tag's yaw or from multiple detections.
+    """
+    if not detections:
+        return None  # No pose possible
+
+    # Very naive example: average the implied (x_r, y_r) from each tag
+    robot_positions = []
+
+    for det in detections:
+        tid = det['id']
+        if tid not in TAG_POSITIONS:
+            continue
+        tag_x, tag_y = TAG_POSITIONS[tid]
+        # Suppose 'pose' has 'distance' (r) and 'bearing' (b) in *robot* frame
+        # so the robot is (r,b) away from the tag in polar coords (tag as origin).
+        r = det['pose']['distance']
+        b = det['pose']['bearing']
+
+        # Convert that to a global estimate of the robot (x_r, y_r).
+        # If the tag is at (x_t, y_t), then robot is:
+        #    x_r = x_t - r*cos(b)
+        #    y_r = y_t - r*sin(b)
+        # but note we must be consistent about angle signs, frames, etc.
+        # This is just an illustration:
+
+        x_r = tag_x - r * math.cos(b)
+        y_r = tag_y - r * math.sin(b)
+
+        robot_positions.append((x_r, y_r))
+
+    # Average them
+    if robot_positions:
+        x_est = sum(p[0] for p in robot_positions) / len(robot_positions)
+        y_est = sum(p[1] for p in robot_positions) / len(robot_positions)
+        # For heading, you could do a more sophisticated approach
+        # or just pick the first detection’s yaw as an estimate:
+        theta_est = detections[0]['pose'].get('yaw', 0.0)
+        return (x_est, y_est, theta_est)
+    else:
+        return None
+
+def get_destination_coordinate(destination_ids):
+    """
+    Given two tag IDs that define a corner, return the (x,y) for 'home'.
+    One simple approach is just to average the corner tags' coordinates.
+    """
+    if len(destination_ids) != 2:
+        raise ValueError("destination_ids must have exactly two elements")
+    tid1, tid2 = destination_ids
+    (x1, y1) = TAG_POSITIONS[tid1]
+    (x2, y2) = TAG_POSITIONS[tid2]
+    # For a “corner,” often these two tags are close, so just take midpoint:
+    return ((x1 + x2)/2.0, (y1 + y2)/2.0)
+
+def go_to(img_bytes, camera, left_motor, right_motor, 
+          forward_speed, rotation_speed, robot, step, destination_ids=[0, 23]):
+    global CHASE_BALL
+    global GO_TO
+
+    # 1) Convert bytes → NumPy array
+    img_array = bytes_to_numpy(img_bytes, camera)
+    if img_array is None:
+        print("Failed to convert image bytes to NumPy array.")
+        return
+
+    # 2) Detect AprilTags in the image
+    OUTPUT_PATH = f"annotated_image_{step}.jpg"
+    detected_tags = detect_apriltags(image=img_array, output_path=OUTPUT_PATH)
+    if not detected_tags:
+        print("No tags detected; rotating in place to find tags.")
+        # Slowly rotate in place until the next detection
+        left_motor.setVelocity(-rotation_speed)
+        right_motor.setVelocity(rotation_speed)
+        return
+
+    # 3) Estimate the robot pose (x, y, theta) in mm + radians
+    pose = estimate_robot_pose(detected_tags)
+    if pose is None:
+        print("Could not estimate robot pose from detections.")
+        left_motor.setVelocity(0)
+        right_motor.setVelocity(0)
+        return
+    robot_x, robot_y, robot_theta = pose
+    print(f"Robot estimated at x={robot_x:.1f}, y={robot_y:.1f}, θ={math.degrees(robot_theta):.1f}°")
+
+    # 4) Get the home (corner) coordinates from the 2 destination IDs
+    home_x, home_y = get_destination_coordinate(destination_ids)
+    print(f"Home destination is at x={home_x:.1f}, y={home_y:.1f}")
+
+    # 5) Compute the distance and heading error
+    dx = home_x - robot_x
+    dy = home_y - robot_y
+    distance_to_home = math.hypot(dx, dy)
+
+    # THRESHOLD = 300 mm as requested
+    DISTANCE_THRESHOLD = 300.0  
+    if distance_to_home < DISTANCE_THRESHOLD:
+        # 1) Move backwards for 1 second
+        print(f"Within {DISTANCE_THRESHOLD}mm threshold. Moving backwards...")
+        left_motor.setVelocity(-forward_speed)
+        right_motor.setVelocity(-forward_speed)
+        start = time.time()
+        while (time.time() - start) < 1.0:  # 1 second backward
+            if robot.step(int(robot.getBasicTimeStep())) == -1:
+                break
+
+        # 2) Rotate away from the home position for 1 second
+        print("Rotating away from home corner...")
+        left_motor.setVelocity(rotation_speed)
+        right_motor.setVelocity(-rotation_speed)
+        start = time.time()
+        while (time.time() - start) < 1.0:  # 1 second rotate
+            if robot.step(int(robot.getBasicTimeStep())) == -1:
+                break
+
+        # 3) Switch back to CHASE_BALL mode
+        left_motor.setVelocity(0)
+        right_motor.setVelocity(0)
+        CHASE_BALL = True
+        GO_TO = False
+        print("DESTINATION ARRIVED, switching to CHASE_BALL mode.")
+        return
+
+    # Otherwise, compute heading error and drive
+    target_angle = math.atan2(dy, dx)
+    angle_diff = (target_angle - robot_theta + math.pi) % (2*math.pi) - math.pi
+
+    # 6) Turn while driving forward with P-control
+    ANGLE_GAIN = 3
+    base_speed = min(forward_speed, 6.28)
+    turn = ANGLE_GAIN * angle_diff
+
+    # Flip sign if needed so positive angle => turn left
+    left_speed = base_speed + turn
+    right_speed = base_speed - turn
+
+    # clamp to [-6.28, 6.28]
+    left_speed = max(-6.28, min(6.28, left_speed))
+    right_speed = max(-6.28, min(6.28, right_speed))
+
+    left_motor.setVelocity(left_speed)
+    right_motor.setVelocity(right_speed)
+
+    print(f"Distance to home = {distance_to_home:.1f} mm, angle diff = {math.degrees(angle_diff):.1f}°")
+    print(f"Setting left={left_speed:.2f}, right={right_speed:.2f}")
 
 def enhance_image(image):
     """
@@ -145,17 +342,21 @@ def enhance_image(image):
     
     return gray_blur
 
-def detect_apriltags(image, output_path=None, visualize=False):
+def detect_apriltags(image, output_path=None):
     """
     Detects all AprilTags in the given image with enhanced accuracy.
 
     Args:
-        image (numpy.ndarray): Input BGR image.
+        image (numpy.ndarray): Input RGB image.
         output_path (str, optional): Path to save the annotated image. If None, the image won't be saved.
-        visualize (bool, optional): If True, displays the annotated image. Defaults to True.
+        visualize (bool, optional): If True, displays the annotated image. Defaults to False.
+
+    Returns:
+        list of dict: List containing detected tags with their IDs and center positions, ordered by x-coordinate.
     """
     # Enhance the image to improve detection accuracy
-    print(type(image))
+    print(f"Image type before enhancement: {type(image)}")
+    print(f"Image writeable before enhancement: {image.flags.writeable}")
     enhanced_gray = enhance_image(image)
 
     # Initialize the AprilTag detector with optimized parameters
@@ -170,14 +371,18 @@ def detect_apriltags(image, output_path=None, visualize=False):
     )
 
     # Detect AprilTags in the enhanced grayscale image
-    tags = detector.detect(enhanced_gray, estimate_tag_pose=False, camera_params=None, tag_size=None)
+    ### SETTINGS
+    fx = 1600 # focal length along x-axis
+    fy = 1600 # focal length along y-axis
+    cx = image.shape[1] / 2 # principal point x
+    cy = image.shape[0] / 2 # principal point y
+    tag_side_meters = 0.1 # example: 10cm wide tags
+    tags = detector.detect(enhanced_gray, estimate_tag_pose=True, camera_params=(fx, fy, cx, cy), tag_size=tag_side_meters)
 
-    # Print the number of detected tags
     print(f"Detected {len(tags)} AprilTag(s) in the image.")
 
-    # Iterate over each detected tag
+    detected_tags = []
     for tag in tags:
-        # Extract tag information
         tag_id = tag.tag_id
         center = tag.center
         corners = tag.corners
@@ -188,42 +393,89 @@ def detect_apriltags(image, output_path=None, visualize=False):
         for idx, corner in enumerate(corners):
             print(f"  Corner {idx + 1}: ({corner[0]:.2f}, {corner[1]:.2f})")
 
-        # Draw bounding box around the tag
-        corners_int = np.int32(corners)  # Correct data type
-        cv2.polylines(image, [corners_int], isClosed=True, color=(0, 255, 0), thickness=2)
+        # ----------------------------
+        # EXTRACT THE POSE INFORMATION
+        # ----------------------------
+        # pose_t is a 3x1 vector [tx, ty, tz] in *meters*
+        # pose_R is a 3x3 rotation matrix
+        tvec = tag.pose_t  # e.g. np.array([tx, ty, tz])
+        Rmat = tag.pose_R  # 3x3 numpy array
 
-        # Draw the tag ID near the center
-        cv2.putText(image, f"ID: {tag_id}", (int(center[0]) - 10, int(center[1]) - 10),
+        # 1) Distance = magnitude of translation
+        distance = np.linalg.norm(tvec)
+
+        # 2) Bearing:
+        #    Bearing is the left/right angle. Typically:
+        #      x-axis is right, y-axis is down, z-axis is forward from camera
+        #      So a simple approximation is:
+        #        bearing = atan2(tx, tz)
+        #      i.e. angle in the X-Z plane.  *Check signs carefully!*
+        tx, ty, tz = tvec
+        bearing = math.atan2(tx, tz)
+
+        # 3) Yaw from rotation matrix:
+        #    This can vary depending on your definitions of pitch/roll/yaw.
+        #    One common approach if Z is forward and X is right:
+        #      yaw = arctan2(Rmat[1,0], Rmat[0,0]) 
+        #    But verify which axis you call “yaw.” 
+        yaw = math.atan2(Rmat[1,0], Rmat[0,0])
+
+        # Store a 'pose' dict so that estimate_robot_pose(...) can use it
+        pose_dict = {
+            'distance': distance,  # in meters or convert to mm
+            'bearing': bearing,
+            'yaw': yaw
+        }
+
+        # Convert to mm if your TAG_POSITIONS dictionary is in mm
+        pose_dict['distance'] *= 1000.0
+
+        detected_tags.append({
+            'id': tag_id,
+            'center': center,
+            'pose': pose_dict
+        })
+
+        # ----------------------------
+        # Drawing / annotation 
+        # (unchanged from your version)
+        # ----------------------------
+        if not image.flags.writeable:
+            image = image.copy()
+        corners_int = np.int32(corners)
+        cv2.polylines(image, [corners_int], isClosed=True,
+                      color=(0, 255, 0), thickness=2)
+        cv2.putText(image, f"ID: {tag_id}",
+                    (int(center[0]) - 10, int(center[1]) - 10),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
-    # If no tags are detected, notify the user
     if len(tags) == 0:
         print("No AprilTags detected in the image.")
 
-    # Save the annotated image if an output path is provided
     if output_path:
         cv2.imwrite(output_path, image)
         print(f"\nAnnotated image saved to '{output_path}'.")
 
-    # Display the annotated image if visualization is enabled
-    if visualize:
-        cv2.imshow('AprilTag Detection', image)
-        print("Press any key in the image window to exit.")
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-        
+    # Sort by X-center just like you had
+    sorted_tags = sorted(detected_tags, key=lambda t: t['center'][0])
+    print("Detected Tags Ordered by X-Center Position:")
+    for t in sorted_tags:
+        print(f"ID: {t['id']}, Center=({t['center'][0]:.2f},{t['center'][1]:.2f}), "
+              f"Dist={t['pose']['distance']:.1f}mm, Bearing={t['pose']['bearing']:.2f} rad")
+
+    return sorted_tags
 
 def main():
     # === Configuration ===
     # Path to the YOLOv11 model weights
-    CHASE_BALL = False
-    GO_TO = True
-    
+    global CHASE_BALL
+    global GO_TO
     model = load_model(MODEL_PATH)
     # === Initialize Robot ===
     robot = Robot()
     timestep, camera, left_motor, right_motor = init_environment(robot)
-    forward_speed = 5.0  # Adjust this value as needed
+    forward_speed = 6.0  # Adjust this value as needed
+    rotation_speed = 4.0
 
     print("Controller initialized. Robot is moving forward and capturing images.")
 
@@ -236,6 +488,11 @@ def main():
 
         # Capture the image
         img = camera.getImage()
+        
+        if COLLECT_BALL_DATA:
+            pil_img = Image.frombytes('RGB', (camera.width, camera.height), img)
+            filename = f"img_{step_count}.png"
+            pil_img.save(filename)
 
         
         if CHASE_BALL:
@@ -270,7 +527,8 @@ def main():
             # Optional: Add a sleep or control the loop frequency if needed
             # time.sleep(0.01)
         elif GO_TO:
-            go_to(img, camera, left_motor, right_motor, forward_speed, destination='start')
+            if step_count % DETECTION_INTERVAL == 0:
+                go_to(img, camera, left_motor, right_motor, forward_speed, rotation_speed, robot, step=step_count//DETECTION_INTERVAL, destination_ids=[0, 23])
 
             # movement logic
         
