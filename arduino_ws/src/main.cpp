@@ -1,26 +1,18 @@
 #include <Arduino.h>
+#include <unibots_servo.hpp>
 
-// put function declarations here:
-int myFunction(int, int);
+UnibotsServo backServo(9, 90); // servo for the back of the rugby storage
 
 void setup()
 {
-  // put your setup code here, to run once:
-  int result = myFunction(2, 3);
-  pinMode(LED_BUILTIN, OUTPUT);
+  backServo.attach();
+  backServo.set_angle(90);
 }
 
 void loop()
 {
-  // put your main code here, to run repeatedly:
-  digitalWrite(LED_BUILTIN, HIGH);
-  delay(5000);
-  digitalWrite(LED_BUILTIN, LOW);
+  backServo.set_angle(0);
   delay(1000);
-}
-
-// put function definitions here:
-int myFunction(int x, int y)
-{
-  return x + y;
+  backServo.set_angle(180);
+  delay(1000);
 }
