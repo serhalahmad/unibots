@@ -13,7 +13,7 @@
 UnibotsServo backServo(SERVO_PIN, 90);                                                // servo for the back of the rugby storage
 UnibotsDCMotor dc_motor_1(DC_MOTOR_1_PWM_PIN, DC_MOTOR_1_CW_PIN, DC_MOTOR_1_CCW_PIN); // First motor
 
-int test_mode = DC_MOTOR_MODE;
+int test_mode = SERVO_MODE;
 
 void setup()
 {

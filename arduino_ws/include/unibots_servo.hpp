@@ -13,7 +13,7 @@ public:
     int get_angle() const;                      // Get current angle
 
 private:
-    int servo_pin;
-    int current_angle;
-    Servo servo;
+    int _pwm_pin;
+    int _current_angle;
+    Servo _servo;
 };
