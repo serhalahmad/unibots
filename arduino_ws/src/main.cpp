@@ -6,14 +6,22 @@
 #define DC_MOTOR_MODE 1
 
 #define SERVO_PIN 9
-#define DC_MOTOR_1_PWM_PIN 10
-#define DC_MOTOR_1_CW_PIN 22
-#define DC_MOTOR_1_CCW_PIN 23
+#define DC_MOTOR_1_PWM_PIN 9
+#define DC_MOTOR_2_PWM_PIN 10
+#define DC_MOTOR_3_PWM_PIN 11
+#define DC_MOTOR_1_CW_PIN 12
+#define DC_MOTOR_2_CW_PIN 12
+#define DC_MOTOR_3_CW_PIN 13
+#define DC_MOTOR_1_CCW_PIN 12
+#define DC_MOTOR_2_CCW_PIN 12
+#define DC_MOTOR_3_CCW_PIN 13
 
 UnibotsServo backServo(SERVO_PIN, 90);                                                // servo for the back of the rugby storage
 UnibotsDCMotor dc_motor_1(DC_MOTOR_1_PWM_PIN, DC_MOTOR_1_CW_PIN, DC_MOTOR_1_CCW_PIN); // First motor
+UnibotsDCMotor dc_motor_2(DC_MOTOR_2_PWM_PIN, DC_MOTOR_2_CW_PIN, DC_MOTOR_2_CCW_PIN); // Second motor
+UnibotsDCMotor dc_motor_3(DC_MOTOR_3_PWM_PIN, DC_MOTOR_3_CW_PIN, DC_MOTOR_3_CCW_PIN); // Third motor
 
-int test_mode = SERVO_MODE;
+int test_mode = DC_MOTOR_MODE;
 
 void setup()
 {
@@ -26,6 +34,8 @@ void setup()
     break;
   case DC_MOTOR_MODE:
     dc_motor_1.begin();
+    dc_motor_2.begin();
+    dc_motor_3.begin();
     break;
   default:
     break;
@@ -46,10 +56,16 @@ void loop()
   case DC_MOTOR_MODE:
     Serial.println("Testing DC Motor...");
     dc_motor_1.set_speed(150);
+    dc_motor_2.set_speed(150);
+    dc_motor_3.set_speed(150);
     delay(2000);
     dc_motor_1.set_speed(-150);
+    dc_motor_2.set_speed(-150);
+    dc_motor_3.set_speed(-150);
     delay(2000);
     dc_motor_1.stop();
+    dc_motor_2.stop();
+    dc_motor_3.stop();
     delay(1000);
     break;
   default:
