@@ -1,28 +1,45 @@
-# my_controller_py controller.
-
 from controller import Robot
 import numpy as np
 from PIL import Image
 from ultralytics import YOLO
-import os
 import sys
 import time
 import cv2
-import numpy as np
 from pupil_apriltags import Detector
-import os
 import math
+import os
 
-# NOTE: normally these are read from env variable
-# MODEL_PATH = r"yolo11s.pt"  # Update this path
-MODEL_PATH = r"C:\Users\Marlo\Documents\code\QMUL-Societies\QMES\unibots\src\runs\detect\train3\weights\best.pt" # custom unibots model
-# Confidence threshold for detections
-CONFIDENCE_THRESHOLD = 0.15  # Adjust as needed
-# Detection interval to manage computational load
-DETECTION_INTERVAL = 25  # Perform detection every 10 steps
+current_dir = os.path.dirname(__file__)
+relative_path = os.path.join(current_dir, '..', '..', 'weights', 'best.pt')
+MODEL_PATH = os.path.abspath(relative_path)
+
+################
+### SETTINGS ###
+################
+
+# MODEL_PATH = r"yolo11s.pt" # Use standard model instead    
+CONFIDENCE_THRESHOLD = 0.15
+DETECTION_FRAME_INTERVAL = 25 # controls how many frames are skipped between apriltag / ball detection is performed
+CAMERA_NAME = "camera"
+DISTANCE_THRESHOLD = 250 # 300.0
+HOME_IDS = [0, 23]
+FORWARD_SPEED = 6.0  # Adjust this value as needed
+ROTATION_SPEED = 4.0
+MAX_MOTOR_SPEED = 6.28 # WeBots speed limit:= 6.28 rad/s
+ANGLE_GAIN = 3
+TURN_RATIO = 0.7
+
+### CAMERA PARAMETERS ###
+FX = 1600 # focal length along x-axis
+FY = 1600 # focal length along y-axis
+TAG_SIDE_METERS = 0.1 # example: 10cm wide tags
+
+# ROBOT STATES
 CHASE_BALL = False
-GO_TO = True
-COLLECT_BALL_DATA = True
+RETURN_HOME = True
+
+# INDEPENDENT STATES
+COLLECT_DATA = True # save frames to disk, to create training data
 
 TAG_POSITIONS = {
     0:  (150, 2000),
@@ -53,11 +70,11 @@ TAG_POSITIONS = {
 
 
 def load_model(model_pth=MODEL_PATH):
-    # === Initialize YOLOv11 Model on CPU ===
+    ''' Initialize YOLOv11 Model on CPU '''
     model = None
     try:
         print("Loading YOLOv11 model on CPU...")
-        model = YOLO(model_pth)  # Force CPU usage
+        model = YOLO(model_pth)
         model.to("cpu")
         print("YOLOv11 model loaded successfully on CPU.")
     except Exception as e:
@@ -65,25 +82,25 @@ def load_model(model_pth=MODEL_PATH):
         sys.exit(1)
     return model
 
+
 def init_environment(robot):
-    """
-    The method initialise the robot
-    """
+    ''' Initialize the robot variables '''
     timestep = int(robot.getBasicTimeStep())
 
     # Initialize the left and right motors
     left_motor = robot.getDevice("left wheel motor")
     right_motor = robot.getDevice("right wheel motor")
 
-    # Set the motors to velocity control mode by setting position to infinity
+    # Change position to inf -> to set velocity control mode
     left_motor.setPosition(float("inf"))
     right_motor.setPosition(float("inf"))
 
     # Initialize the camera
-    camera = robot.getDevice("camera")  # Ensure the camera device name is correct
+    camera = robot.getDevice(CAMERA_NAME)
     camera.enable(timestep)
-
+    
     return timestep, camera, left_motor, right_motor
+
 
 def bytes_to_numpy(img_bytes, camera):
     """
@@ -108,7 +125,8 @@ def bytes_to_numpy(img_bytes, camera):
         print(f"Error converting bytes to NumPy array: {e}")
         return None
 
-def detection(img, camera, model):
+
+def ball_detection(img, camera, model):
     x_center_int = None
     try:
         # Get image dimensions
@@ -127,10 +145,7 @@ def detection(img, camera, model):
         print("Model inference starting...")
 
         # Run the YOLOv11 model on the image
-        results = model(image_np, conf=CONFIDENCE_THRESHOLD)
-
-        # Initialize x_positions for the single image
-        # x_positions = []
+        results = model(image_np, conf=CONFIDENCE_THRESHOLD, save=True)
 
         # Process and print detected objects
         result = results[0]  # Since there's only one image
@@ -138,83 +153,20 @@ def detection(img, camera, model):
         if boxes:
             for box in boxes:
                 # Extract the bounding box coordinates (x1, y1, x2, y2)
-                x1, y1, x2, y2 = box.xyxy[
-                    0
-                ]  # Assuming box.xyxy is a tensor with shape [1, 4]
-
+                x1, y1, x2, y2 = box.xyxy[0]
+                print(box.xyxy)
                 # Calculate the center x position
                 x_center = (x1 + x2) / 2
 
                 # Convert to integer
-                x_center_int = int(
-                    x_center.item()
-                )  # .item() extracts the value from the tensor
-
-                # Append to the list
-                # x_positions.append(x_center_int)
-
-                # print(f"Image 0 x positions: {x_positions}")
+                x_center_int = int(x_center.item())
         else:
             print("Image 0: []")
 
     except Exception as e:
         print(f"Error during image processing or detection: {e}")
-        # continue  # Continue the loop even if an error occurs
     return x_center_int
 
-
-
-
-def estimate_robot_pose(detections):
-    """
-    Given a list of tag detections (each with a known global TAG_POSITIONS[id]
-    and a relative robot->tag transform), estimate the robot's global pose.
-    
-    For simplicity, we might:
-       1) For each detected tag, know the tag's (x_t, y_t).
-       2) Use the detection's distance + bearing to guess the robot's position
-          (x_r, y_r) = (x_t, y_t) - relative_offset(...)
-       3) Possibly average the positions from each detection.
-       4) Estimate heading from e.g. the tag's yaw or from multiple detections.
-    """
-    if not detections:
-        return None  # No pose possible
-
-    # Very naive example: average the implied (x_r, y_r) from each tag
-    robot_positions = []
-
-    for det in detections:
-        tid = det['id']
-        if tid not in TAG_POSITIONS:
-            continue
-        tag_x, tag_y = TAG_POSITIONS[tid]
-        # Suppose 'pose' has 'distance' (r) and 'bearing' (b) in *robot* frame
-        # so the robot is (r,b) away from the tag in polar coords (tag as origin).
-        r = det['pose']['distance']
-        b = det['pose']['bearing']
-
-        # Convert that to a global estimate of the robot (x_r, y_r).
-        # If the tag is at (x_t, y_t), then robot is:
-        #    x_r = x_t - r*cos(b)
-        #    y_r = y_t - r*sin(b)
-        # but note we must be consistent about angle signs, frames, etc.
-        # This is just an illustration:
-
-        x_r = tag_x - r * math.cos(b)
-        y_r = tag_y - r * math.sin(b)
-
-        robot_positions.append((x_r, y_r))
-
-    # Average them
-    if robot_positions:
-        x_est = sum(p[0] for p in robot_positions) / len(robot_positions)
-        y_est = sum(p[1] for p in robot_positions) / len(robot_positions)
-        # For heading, you could do a more sophisticated approach
-        # or just pick the first detection’s yaw as an estimate:
-        theta_est = detections[0]['pose'].get('yaw', 0.0)
-        return (x_est, y_est, theta_est)
-    else:
-        return None
 
 def get_destination_coordinate(destination_ids):
     """
@@ -226,13 +178,18 @@ def get_destination_coordinate(destination_ids):
     tid1, tid2 = destination_ids
     (x1, y1) = TAG_POSITIONS[tid1]
     (x2, y2) = TAG_POSITIONS[tid2]
-    # For a “corner,” often these two tags are close, so just take midpoint:
+    # For a “corner,” often these two tags are close, so just take midpoint:    
     return ((x1 + x2)/2.0, (y1 + y2)/2.0)
 
-def go_to(img_bytes, camera, left_motor, right_motor, 
-          forward_speed, rotation_speed, robot, step, destination_ids=[0, 23]):
+
+def return_home(img_bytes, camera, left_motor, right_motor, robot, step, destination_ids=[0, 23]):
     global CHASE_BALL
-    global GO_TO
+    global RETURN_HOME
+    global DISTANCE_THRESHOLD
+    global FORWARD_SPEED
+    global ROTATION_SPEED
+    global MAX_MOTOR_SPEED
+    global ANGLE_GAIN
 
     # 1) Convert bytes → NumPy array
     img_array = bytes_to_numpy(img_bytes, camera)
@@ -246,8 +203,8 @@ def go_to(img_bytes, camera, left_motor, right_motor,
     if not detected_tags:
         print("No tags detected; rotating in place to find tags.")
         # Slowly rotate in place until the next detection
-        left_motor.setVelocity(-rotation_speed)
-        right_motor.setVelocity(rotation_speed)
+        left_motor.setVelocity(-ROTATION_SPEED)
+        right_motor.setVelocity(ROTATION_SPEED)
         return
 
     # 3) Estimate the robot pose (x, y, theta) in mm + radians
@@ -269,13 +226,11 @@ def go_to(img_bytes, camera, left_motor, right_motor,
     dy = home_y - robot_y
     distance_to_home = math.hypot(dx, dy)
 
-    # THRESHOLD = 300 mm as requested
-    DISTANCE_THRESHOLD = 300.0  
     if distance_to_home < DISTANCE_THRESHOLD:
         # 1) Move backwards for 1 second
         print(f"Within {DISTANCE_THRESHOLD}mm threshold. Moving backwards...")
-        left_motor.setVelocity(-forward_speed)
-        right_motor.setVelocity(-forward_speed)
+        left_motor.setVelocity(-FORWARD_SPEED)
+        right_motor.setVelocity(-FORWARD_SPEED)
         start = time.time()
         while (time.time() - start) < 1.0:  # 1 second backward
             if robot.step(int(robot.getBasicTimeStep())) == -1:
@@ -283,8 +238,8 @@ def go_to(img_bytes, camera, left_motor, right_motor,
 
         # 2) Rotate away from the home position for 1 second
         print("Rotating away from home corner...")
-        left_motor.setVelocity(rotation_speed)
-        right_motor.setVelocity(-rotation_speed)
+        left_motor.setVelocity(FORWARD_SPEED)
+        right_motor.setVelocity(-FORWARD_SPEED)
         start = time.time()
         while (time.time() - start) < 1.0:  # 1 second rotate
             if robot.step(int(robot.getBasicTimeStep())) == -1:
@@ -294,7 +249,7 @@ def go_to(img_bytes, camera, left_motor, right_motor,
         left_motor.setVelocity(0)
         right_motor.setVelocity(0)
         CHASE_BALL = True
-        GO_TO = False
+        RETURN_HOME = False
         print("DESTINATION ARRIVED, switching to CHASE_BALL mode.")
         return
 
@@ -303,17 +258,15 @@ def go_to(img_bytes, camera, left_motor, right_motor,
     angle_diff = (target_angle - robot_theta + math.pi) % (2*math.pi) - math.pi
 
     # 6) Turn while driving forward with P-control
-    ANGLE_GAIN = 3
-    base_speed = min(forward_speed, 6.28)
+    base_speed = min(FORWARD_SPEED, MAX_MOTOR_SPEED)
     turn = ANGLE_GAIN * angle_diff
 
     # Flip sign if needed so positive angle => turn left
     left_speed = base_speed + turn
     right_speed = base_speed - turn
 
-    # clamp to [-6.28, 6.28]
-    left_speed = max(-6.28, min(6.28, left_speed))
-    right_speed = max(-6.28, min(6.28, right_speed))
+    left_speed = max(-MAX_MOTOR_SPEED, min(MAX_MOTOR_SPEED, left_speed))
+    right_speed = max(-MAX_MOTOR_SPEED, min(MAX_MOTOR_SPEED, right_speed))
 
     left_motor.setVelocity(left_speed)
     right_motor.setVelocity(right_speed)
@@ -354,6 +307,8 @@ def detect_apriltags(image, output_path=None):
     Returns:
         list of dict: List containing detected tags with their IDs and center positions, ordered by x-coordinate.
     """
+    global FX, FY, TAG_SIDE_METERS
+    
     # Enhance the image to improve detection accuracy
     print(f"Image type before enhancement: {type(image)}")
     print(f"Image writeable before enhancement: {image.flags.writeable}")
@@ -370,14 +325,9 @@ def detect_apriltags(image, output_path=None):
         debug=0                      # Debug mode (0: off, 1: on)
     )
 
-    # Detect AprilTags in the enhanced grayscale image
-    ### SETTINGS
-    fx = 1600 # focal length along x-axis
-    fy = 1600 # focal length along y-axis
     cx = image.shape[1] / 2 # principal point x
     cy = image.shape[0] / 2 # principal point y
-    tag_side_meters = 0.1 # example: 10cm wide tags
-    tags = detector.detect(enhanced_gray, estimate_tag_pose=True, camera_params=(fx, fy, cx, cy), tag_size=tag_side_meters)
+    tags = detector.detect(enhanced_gray, estimate_tag_pose=True, camera_params=(FX, FY, cx, cy), tag_size=TAG_SIDE_METERS)
 
     print(f"Detected {len(tags)} AprilTag(s) in the image.")
 
@@ -465,17 +415,64 @@ def detect_apriltags(image, output_path=None):
 
     return sorted_tags
 
+
+def estimate_robot_pose(detections):
+    """
+    Given a list of tag detections (each with a known global TAG_POSITIONS[id]
+    and a relative robot->tag transform), estimate the robot's global pose.
+    
+    For simplicity, we might:
+       1) For each detected tag, know the tag's (x_t, y_t).
+       2) Use the detection's distance + bearing to guess the robot's position
+          (x_r, y_r) = (x_t, y_t) - relative_offset(...)
+       3) Possibly average the positions from each detection.
+       4) Estimate heading from e.g. the tag's yaw or from multiple detections.
+    """
+    if not detections:
+        return None  # No pose possible
+
+    # Very naive example: average the implied (x_r, y_r) from each tag
+    robot_positions = []
+
+    for det in detections:
+        tid = det['id']
+        if tid not in TAG_POSITIONS:
+            continue
+        tag_x, tag_y = TAG_POSITIONS[tid]
+        # Suppose 'pose' has 'distance' (r) and 'bearing' (b) in *robot* frame
+        # so the robot is (r,b) away from the tag in polar coords (tag as origin).
+        r = det['pose']['distance']
+        b = det['pose']['bearing']
+
+        x_r = tag_x - r * math.cos(b)
+        y_r = tag_y - r * math.sin(b)
+
+        robot_positions.append((x_r, y_r))
+
+    # Average them
+    if robot_positions:
+        x_est = sum(p[0] for p in robot_positions) / len(robot_positions)
+        y_est = sum(p[1] for p in robot_positions) / len(robot_positions)
+        # For heading, you could do a more sophisticated approach
+        # or just pick the first detection’s yaw as an estimate:
+        theta_est = detections[0]['pose'].get('yaw', 0.0)
+        return (x_est, y_est, theta_est)
+    else:
+        return None
+
+
 def main():
     # === Configuration ===
     # Path to the YOLOv11 model weights
     global CHASE_BALL
-    global GO_TO
+    global RETURN_HOME
+    global FORWARD_SPEED
+    global ROTATION_SPEED
+    global TURN_RATIO
     model = load_model(MODEL_PATH)
     # === Initialize Robot ===
     robot = Robot()
     timestep, camera, left_motor, right_motor = init_environment(robot)
-    forward_speed = 6.0  # Adjust this value as needed
-    rotation_speed = 4.0
 
     print("Controller initialized. Robot is moving forward and capturing images.")
 
@@ -489,7 +486,7 @@ def main():
         # Capture the image
         img = camera.getImage()
         
-        if COLLECT_BALL_DATA:
+        if COLLECT_DATA:
             pil_img = Image.frombytes('RGB', (camera.width, camera.height), img)
             filename = f"img_{step_count}.png"
             pil_img.save(filename)
@@ -500,13 +497,13 @@ def main():
 
             if img:
                 # Perform detection at specified intervals to manage computational load
-                if step_count % DETECTION_INTERVAL == 0:
-                    x_center_int = detection(img, camera, model)
+                if step_count % DETECTION_FRAME_INTERVAL == 0:
+                    x_center_int = ball_detection(img, camera, model)
                     if x_center_int is not None:
                         x_positions.append(x_center_int)
 
             # check if x_positions is empty, only overwrite if not empty or last frame was also empty
-            if step_count % DETECTION_INTERVAL == 0:
+            if step_count % DETECTION_FRAME_INTERVAL == 0:
                 if not x_positions and prev_x_positions:
                     a = x_positions.copy()
                     x_positions = prev_x_positions.copy()
@@ -517,21 +514,19 @@ def main():
                 if x_positions[-1] > camera.getWidth() / 2:
                     # move right
                     print("move to the right")
-                    left_motor.setVelocity(forward_speed)
-                    right_motor.setVelocity(forward_speed * 0.7)
+                    left_motor.setVelocity(FORWARD_SPEED)
+                    right_motor.setVelocity(FORWARD_SPEED * TURN_RATIO)
                 else:
                     print("move to the left")
-                    left_motor.setVelocity(forward_speed * 0.7)
-                    right_motor.setVelocity(forward_speed)
+                    left_motor.setVelocity(FORWARD_SPEED * TURN_RATIO)
+                    right_motor.setVelocity(FORWARD_SPEED)
 
             # Optional: Add a sleep or control the loop frequency if needed
             # time.sleep(0.01)
-        elif GO_TO:
-            if step_count % DETECTION_INTERVAL == 0:
-                go_to(img, camera, left_motor, right_motor, forward_speed, rotation_speed, robot, step=step_count//DETECTION_INTERVAL, destination_ids=[0, 23])
-
-            # movement logic
-        
+        elif RETURN_HOME:
+            global HOME_IDS
+            if step_count % DETECTION_FRAME_INTERVAL == 0:
+                return_home(img, camera, left_motor, right_motor, robot, step=step_count//DETECTION_FRAME_INTERVAL, destination_ids=HOME_IDS)       
     # Cleanup (optional in Python)
     robot.cleanup()
 
