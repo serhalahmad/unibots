@@ -8,8 +8,8 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/project
 WorldInfo {
 }
 Viewpoint {
-  orientation -0.1383618527770033 -0.28329391063108106 0.9489997670681822 5.332606177939072
-  position -0.48437410336651776 0.7779930552357658 0.5915034101189789
+  orientation -0.18088760343412483 -0.4113110385657966 0.8933660529020477 5.368301659359662
+  position -0.7004326922320112 0.7518578720500557 0.7438321691067571
 }
 TexturedBackground {
 }
@@ -21,7 +21,7 @@ RectangleArena {
   wallThickness 0.05
 }
 DEF Ball-2 Solid {
-  translation 0.59 0.08 0.0199474
+  translation 0.59 -0.32 0.0199474
   children [
     Shape {
       appearance PBRAppearance {
@@ -39,7 +39,7 @@ DEF Ball-2 Solid {
   }
 }
 DEF Ball-1 Solid {
-  translation 0.4 -0.02 0.0199474
+  translation 0.4 -0.61 0.0199474
   children [
     Shape {
       appearance PBRAppearance {
@@ -59,7 +59,7 @@ DEF Ball-1 Solid {
   }
 }
 DEF Ball-3 Solid {
-  translation 0.72 -0.19 0.0199474
+  translation 0.72 -0.6 0.0199474
   children [
     Shape {
       appearance PBRAppearance {
@@ -79,8 +79,8 @@ DEF Ball-3 Solid {
   }
 }
 E-puck {
-  translation 0.445881 -0.107681 0.000234517
-  rotation 0.00010482095488147463 0.0009218896031871728 0.9999995695659708 -1.797245307179586
+  translation 0.844158 -0.838128 0.00144036
+  rotation -0.0006272958090663246 0.0004639518587842732 0.999999695624274 2.39154
   controller "my_controller_py"
   camera_fieldOfView 1.5
   camera_width 1920

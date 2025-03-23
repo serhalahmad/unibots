@@ -21,13 +21,15 @@ MODEL_PATH = os.path.abspath(relative_path)
 CONFIDENCE_THRESHOLD = 0.15
 DETECTION_FRAME_INTERVAL = 25 # controls how many frames are skipped between apriltag / ball detection is performed
 CAMERA_NAME = "camera"
-DISTANCE_THRESHOLD = 250 # 300.0
+DISTANCE_THRESHOLD = 50 # 300.0
 HOME_IDS = [0, 23]
 FORWARD_SPEED = 6.0  # Adjust this value as needed
 ROTATION_SPEED = 4.0
 MAX_MOTOR_SPEED = 6.28 # WeBots speed limit:= 6.28 rad/s
 ANGLE_GAIN = 3
 TURN_RATIO = 0.7
+COMPETITION_START_TIME = 3 # seconds
+GO_HOME_TIMER = 10 # seconds
 
 ### CAMERA PARAMETERS ###
 FX = 1600 # focal length along x-axis
@@ -35,11 +37,13 @@ FY = 1600 # focal length along y-axis
 TAG_SIDE_METERS = 0.1 # example: 10cm wide tags
 
 # ROBOT STATES
-CHASE_BALL = False
-RETURN_HOME = True
+COMPETITION = True
+CHASE_BALL = True
+RETURN_HOME = False
 
 # INDEPENDENT STATES
-COLLECT_DATA = True # save frames to disk, to create training data
+COLLECT_DATA = False # save frames to disk, to create training data
+COLLECT_INFERENCE_DATA = False # save inference data to disk, to check out inference results
 
 TAG_POSITIONS = {
     0:  (150, 2000),
@@ -127,6 +131,8 @@ def bytes_to_numpy(img_bytes, camera):
 
 
 def ball_detection(img, camera, model):
+    global COLLECT_INFERENCE_DATA
+    global CONFIDENCE_THRESHOLD
     x_center_int = None
     try:
         # Get image dimensions
@@ -145,7 +151,7 @@ def ball_detection(img, camera, model):
         print("Model inference starting...")
 
         # Run the YOLOv11 model on the image
-        results = model(image_np, conf=CONFIDENCE_THRESHOLD, save=True)
+        results = model(image_np, conf=CONFIDENCE_THRESHOLD, save=COLLECT_INFERENCE_DATA)
 
         # Process and print detected objects
         result = results[0]  # Since there's only one image
@@ -226,6 +232,7 @@ def return_home(img_bytes, camera, left_motor, right_motor, robot, step, destina
     dy = home_y - robot_y
     distance_to_home = math.hypot(dx, dy)
 
+    print(f"Distance to home = {distance_to_home:.1f} mm")
     if distance_to_home < DISTANCE_THRESHOLD:
         # 1) Move backwards for 1 second
         print(f"Within {DISTANCE_THRESHOLD}mm threshold. Moving backwards...")
@@ -462,74 +469,90 @@ def estimate_robot_pose(detections):
 
 
 def main():
-    # === Configuration ===
-    # Path to the YOLOv11 model weights
-    global CHASE_BALL
-    global RETURN_HOME
-    global FORWARD_SPEED
-    global ROTATION_SPEED
-    global TURN_RATIO
+    global CHASE_BALL, RETURN_HOME, FORWARD_SPEED, ROTATION_SPEED, TURN_RATIO, COMPETITION, COLLECT_DATA, GO_HOME_TIMER
     model = load_model(MODEL_PATH)
-    # === Initialize Robot ===
+    if COMPETITION:
+        print(f"Competition mode enabled - waiting for {COMPETITION_START_TIME} seconds.")
+    
     robot = Robot()
     timestep, camera, left_motor, right_motor = init_environment(robot)
-
-    print("Controller initialized. Robot is moving forward and capturing images.")
-
-    # Initialize detection counter
     step_count = 0
     prev_x_positions = []
-    # Main loop: keep running until the simulation is stopped
+
+    if COMPETITION:
+        time.sleep(COMPETITION_START_TIME)
+        print(f"{COMPETITION_START_TIME} seconds have passed. Starting the competition.")
+
+    # Initialize a timer for BALL_CHASE mode
+    chase_start_time = time.time()
+    # Keep track of the previous mode to detect mode transitions
+    previous_mode = "CHASE_BALL"
+    
     while robot.step(timestep) != -1:
         step_count += 1
 
-        # Capture the image
+        # Capture the image from the camera
         img = camera.getImage()
         
         if COLLECT_DATA:
             pil_img = Image.frombytes('RGB', (camera.width, camera.height), img)
             filename = f"img_{step_count}.png"
             pil_img.save(filename)
-
+        
+        # Check if 15 seconds have elapsed in BALL_CHASE mode.
+        if CHASE_BALL and (time.time() - chase_start_time >= GO_HOME_TIMER):
+            CHASE_BALL = False
+            RETURN_HOME = True
+            print(f"{GO_HOME_TIMER} seconds elapsed in BALL_CHASE mode. Switching to RETURN_HOME mode.")
         
         if CHASE_BALL:
             x_positions = []
 
             if img:
-                # Perform detection at specified intervals to manage computational load
+                # Perform ball detection at defined intervals
                 if step_count % DETECTION_FRAME_INTERVAL == 0:
                     x_center_int = ball_detection(img, camera, model)
                     if x_center_int is not None:
                         x_positions.append(x_center_int)
 
-            # check if x_positions is empty, only overwrite if not empty or last frame was also empty
             if step_count % DETECTION_FRAME_INTERVAL == 0:
                 if not x_positions and prev_x_positions:
                     a = x_positions.copy()
                     x_positions = prev_x_positions.copy()
                     prev_x_positions = a.copy()
-
-            # move robot according to path planning (using x_positions, every frame)
-            if x_positions:
-                if x_positions[-1] > camera.getWidth() / 2:
-                    # move right
-                    print("move to the right")
-                    left_motor.setVelocity(FORWARD_SPEED)
-                    right_motor.setVelocity(FORWARD_SPEED * TURN_RATIO)
-                else:
-                    print("move to the left")
-                    left_motor.setVelocity(FORWARD_SPEED * TURN_RATIO)
-                    right_motor.setVelocity(FORWARD_SPEED)
-
-            # Optional: Add a sleep or control the loop frequency if needed
-            # time.sleep(0.01)
+                elif not x_positions and not prev_x_positions:
+                    print("Rotate right in place to find ball")
+                    left_motor.setVelocity(ROTATION_SPEED)
+                    right_motor.setVelocity(-ROTATION_SPEED)
+                
+                if x_positions:
+                    # Simple decision: if the last detected ball is to the right, move right, otherwise left.
+                    if x_positions[-1] > camera.getWidth() / 2:
+                        print("Move to the right")
+                        left_motor.setVelocity(FORWARD_SPEED)
+                        right_motor.setVelocity(FORWARD_SPEED * TURN_RATIO)
+                    else:
+                        print("Move to the left")
+                        left_motor.setVelocity(FORWARD_SPEED * TURN_RATIO)
+                        right_motor.setVelocity(FORWARD_SPEED)
         elif RETURN_HOME:
-            global HOME_IDS
             if step_count % DETECTION_FRAME_INTERVAL == 0:
-                return_home(img, camera, left_motor, right_motor, robot, step=step_count//DETECTION_FRAME_INTERVAL, destination_ids=HOME_IDS)       
-    # Cleanup (optional in Python)
+                return_home(img, camera, left_motor, right_motor, robot,
+                            step=step_count // DETECTION_FRAME_INTERVAL, destination_ids=HOME_IDS)
+        
+            # When the robot has returned home, the return_home function sets:
+            #   CHASE_BALL = True and RETURN_HOME = False.
+            # Detect that switch to reset the chase timer.
+            if CHASE_BALL:
+                chase_start_time = time.time()
+                print("Returned home. Switching back to BALL_CHASE mode and resetting timer.")
+            # if previous_mode != "CHASE_BALL" and CHASE_BALL:
+            #     chase_start_time = time.time()
+            #     print("Returned home. Switching back to BALL_CHASE mode and resetting timer.")
+            
+            # previous_mode = "CHASE_BALL" if CHASE_BALL else "RETURN_HOME"
+    
     robot.cleanup()
-
 
 if __name__ == "__main__":
     main()
