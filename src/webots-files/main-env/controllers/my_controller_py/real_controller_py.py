@@ -1,4 +1,3 @@
-from controller import Robot
 import numpy as np
 from PIL import Image
 from ultralytics import YOLO
@@ -103,7 +102,7 @@ def bytes_to_numpy(img_bytes):
     global IMAGE_WIDTH, IMAGE_HEIGHT
     try:
         # Convert the raw image data to a NumPy array
-        img_array = np.frombuffer(img_bytes, dtype=np.uint8).reshape((IMAGE_WIDTH, IMAGE_HEIGHT, 4))
+        img_array = np.frombuffer(img_bytes, dtype=np.uint8).reshape((IMAGE_HEIGHT, IMAGE_WIDTH, 4))
         # Convert RGBA to RGB by removing the alpha channel and make a copy to ensure writeability
         img_rgb = img_array[:, :, :3].copy()
         return img_rgb
@@ -117,7 +116,7 @@ def ball_detection(img, model):
     x_center_int = None
     try:
         # Convert the raw image data to a NumPy array
-        img_array = np.frombuffer(img, dtype=np.uint8).reshape((IMAGE_WIDTH, IMAGE_HEIGHT, 4))
+        img_array = np.frombuffer(img, dtype=np.uint8).reshape((IMAGE_HEIGHT, IMAGE_WIDTH, 4))
 
         # Convert RGBA to RGB by removing the alpha channel
         img_rgb = img_array[:, :, :3]
@@ -517,7 +516,7 @@ def main():
             pass
         
         if COLLECT_DATA:
-            pil_img = Image.frombytes('RGB', (IMAGE_WIDTH, IMAGE_HEIGHT), img)
+            pil_img = Image.frombytes('RGB', (IMAGE_HEIGHT, IMAGE_WIDTH), img)
             filename = f"img_{step_count}.png"
             pil_img.save(filename)
         
