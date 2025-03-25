@@ -20,12 +20,12 @@ MODEL_PATH = os.path.abspath(relative_path)
 # MODEL_PATH = r"yolo11s.pt" # Use standard model instead    
 CONFIDENCE_THRESHOLD = 0.15
 DETECTION_FRAME_INTERVAL = 25 # controls how many frames are skipped between apriltag / ball detection is performed
-CAMERA_NAME = "camera"
+# CAMERA_NAME = "camera"
 DISTANCE_THRESHOLD = 50 # 300.0
 HOME_IDS = [0, 23]
-FORWARD_SPEED = 6.0  # Adjust this value as needed
 ROTATION_SPEED = 4.0
-MAX_MOTOR_SPEED = 6.28 # WeBots speed limit:= 6.28 rad/s
+FORWARD_SPEED = 75
+MAX_MOTOR_SPEED = 150 # Real max speed: 150 | WeBots speed limit:= 6.28 rad/s
 ANGLE_GAIN = 3
 TURN_RATIO = 0.7
 COMPETITION_START_TIME = 3 # seconds
@@ -89,25 +89,6 @@ def load_model(model_pth=MODEL_PATH):
     return model
 
 
-def init_environment(robot):
-    ''' Initialize the robot variables '''
-    timestep = int(robot.getBasicTimeStep())
-
-    # Initialize the left and right motors
-    left_motor = robot.getDevice("left wheel motor")
-    right_motor = robot.getDevice("right wheel motor")
-
-    # Change position to inf -> to set velocity control mode
-    left_motor.setPosition(float("inf"))
-    right_motor.setPosition(float("inf"))
-
-    # Initialize the camera
-    camera = robot.getDevice(CAMERA_NAME)
-    camera.enable(timestep)
-    
-    return timestep, camera, left_motor, right_motor
-
-
 def bytes_to_numpy(img_bytes):
     """
     Converts image bytes from the camera to a writeable NumPy array.
@@ -122,7 +103,7 @@ def bytes_to_numpy(img_bytes):
     global IMAGE_WIDTH, IMAGE_HEIGHT
     try:
         # Convert the raw image data to a NumPy array
-        img_array = np.frombuffer(img_bytes, dtype=np.uint8).reshape((IMAGE_HEIGHT, IMAGE_WIDTH, 4))
+        img_array = np.frombuffer(img_bytes, dtype=np.uint8).reshape((IMAGE_WIDTH, IMAGE_HEIGHT, 4))
         # Convert RGBA to RGB by removing the alpha channel and make a copy to ensure writeability
         img_rgb = img_array[:, :, :3].copy()
         return img_rgb
@@ -136,7 +117,7 @@ def ball_detection(img, model):
     x_center_int = None
     try:
         # Convert the raw image data to a NumPy array
-        img_array = np.frombuffer(img, dtype=np.uint8).reshape((IMAGE_HEIGHT, IMAGE_WIDTH, 4))
+        img_array = np.frombuffer(img, dtype=np.uint8).reshape((IMAGE_WIDTH, IMAGE_HEIGHT, 4))
 
         # Convert RGBA to RGB by removing the alpha channel
         img_rgb = img_array[:, :, :3]
@@ -150,8 +131,8 @@ def ball_detection(img, model):
         results = model(image_np, conf=CONFIDENCE_THRESHOLD, save=COLLECT_INFERENCE_DATA)
 
         # Process and print detected objects
-        result = results[0]  # Since there's only one image
-        boxes = result.boxes  # Boxes object for bounding box outputs
+        result = results[0] # Since there's only one image
+        boxes = result.boxes # Boxes object for bounding box outputs
         if boxes:
             for box in boxes:
                 # Extract the bounding box coordinates (x1, y1, x2, y2)
@@ -187,7 +168,7 @@ def get_destination_coordinate(destination_ids):
 def return_home(img_bytes, left_motor, right_motor, step, destination_ids=[0, 23]):
     global CHASE_BALL, RETURN_HOME, DISTANCE_THRESHOLD, FORWARD_SPEED, ROTATION_SPEED, MAX_MOTOR_SPEED, ANGLE_GAIN
 
-    # 1) Convert bytes → NumPy array
+    # 1) Convert bytes -> NumPy array
     img_array = bytes_to_numpy(img_bytes)
     if img_array is None:
         print("Failed to convert image bytes to NumPy array.")
@@ -266,6 +247,7 @@ def return_home(img_bytes, left_motor, right_motor, step, destination_ids=[0, 23
     print(f"Distance to home = {distance_to_home:.1f} mm, angle diff = {math.degrees(angle_diff):.1f}°")
     print(f"Setting left={left_speed:.2f}, right={right_speed:.2f}")
 
+
 def enhance_image(image):
     """
     Enhances the input image to improve AprilTag detection.
@@ -287,6 +269,7 @@ def enhance_image(image):
     
     return gray_blur
 
+
 def detect_apriltags(image, output_path=None):
     """
     Detects all AprilTags in the given image with enhanced accuracy.
@@ -299,7 +282,7 @@ def detect_apriltags(image, output_path=None):
     Returns:
         list of dict: List containing detected tags with their IDs and center positions, ordered by x-coordinate.
     """
-    global FX, FY, TAG_SIDE_METERS
+    global FX, FY, TAG_SIDE_METERS, COLLECT_INFERENCE_DATA
     
     # Enhance the image to improve detection accuracy
     print(f"Image type before enhancement: {type(image)}")
@@ -378,10 +361,7 @@ def detect_apriltags(image, output_path=None):
             'pose': pose_dict
         })
 
-        # ----------------------------
-        # Drawing / annotation 
-        # (unchanged from your version)
-        # ----------------------------
+        # Performance increasement: if COLLECT_INFERENCE_DATA:
         if not image.flags.writeable:
             image = image.copy()
         corners_int = np.int32(corners)
@@ -394,7 +374,7 @@ def detect_apriltags(image, output_path=None):
     if len(tags) == 0:
         print("No AprilTags detected in the image.")
 
-    if output_path:
+    if output_path and COLLECT_INFERENCE_DATA:
         cv2.imwrite(output_path, image)
         print(f"\nAnnotated image saved to '{output_path}'.")
 
@@ -452,7 +432,7 @@ def estimate_robot_pose(detections):
     else:
         return None
 
-# Example Motor class for real hardware (you need to adapt this to your motor driver)
+
 class Motor:
     def init(self, name, ser):
         self.name = name
@@ -464,6 +444,7 @@ class Motor:
         print(f"Setting {self.name} motors velocity to {velocity}")
         command = self.name + velocity
         self.ser.write(command.encode())
+
 
 def init_real_environment():
     global IMAGE_WIDTH, IMAGE_HEIGHT
@@ -480,9 +461,11 @@ def init_real_environment():
 
     return cap, left_motor, right_motor
 
+
 def cleanup(cap):
     cap.release()
     cv2.destroyAllWindows()
+    
 
 # To mimic camera.getImage() in the simulation:
 def get_image(cap):
@@ -492,9 +475,6 @@ def get_image(cap):
         return None
     return frame
 
-# To mimic camera.getWidth() in the simulation:
-def get_width(cap):
-    return int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
 
 def main():
     global IMAGE_WIDTH, IMAGE_HEIGHT
@@ -552,40 +532,39 @@ def main():
 
             if img:
                 # Perform ball detection at defined intervals
-                if step_count % DETECTION_FRAME_INTERVAL == 0:
-                    x_center_int = ball_detection(img, model)
-                    if x_center_int is not None:
-                        x_positions.append(x_center_int)
+                # if step_count % DETECTION_FRAME_INTERVAL == 0:
+                x_center_int = ball_detection(img, model)
+                if x_center_int is not None:
+                    x_positions.append(x_center_int)
 
-            if step_count % DETECTION_FRAME_INTERVAL == 0:
-                if not x_positions and prev_x_positions:
-                    a = x_positions.copy()
-                    x_positions = prev_x_positions.copy()
-                    prev_x_positions = a.copy()
-                elif not x_positions and not prev_x_positions:
-                    print("Rotate right in place to find ball")
-                    left_motor.setVelocity(ROTATION_SPEED)
-                    right_motor.setVelocity(-ROTATION_SPEED)
-                
-                if x_positions:
-                    # Simple decision: if the last detected ball is to the right, move right, otherwise left.
-                    if x_positions[-1] > IMAGE_WIDTH / 2:
-                        print("Move to the right")
-                        left_motor.setVelocity(FORWARD_SPEED)
-                        right_motor.setVelocity(FORWARD_SPEED * TURN_RATIO)
-                    else:
-                        print("Move to the left")
-                        left_motor.setVelocity(FORWARD_SPEED * TURN_RATIO)
-                        right_motor.setVelocity(FORWARD_SPEED)
+            # if step_count % DETECTION_FRAME_INTERVAL == 0:
+            if not x_positions and prev_x_positions:
+                a = x_positions.copy()
+                x_positions = prev_x_positions.copy()
+                prev_x_positions = a.copy()
+            elif not x_positions and not prev_x_positions:
+                print("Rotate right in place to find ball")
+                left_motor.setVelocity(ROTATION_SPEED)
+                right_motor.setVelocity(-ROTATION_SPEED)
+            
+            if x_positions:
+                # Simple decision: if the last detected ball is to the right, move right, otherwise left.
+                if x_positions[-1] > IMAGE_WIDTH / 2:
+                    print("Move to the right")
+                    left_motor.setVelocity(FORWARD_SPEED)
+                    right_motor.setVelocity(FORWARD_SPEED * TURN_RATIO)
+                else:
+                    print("Move to the left")
+                    left_motor.setVelocity(FORWARD_SPEED * TURN_RATIO)
+                    right_motor.setVelocity(FORWARD_SPEED)
         elif RETURN_HOME:
-            if step_count % DETECTION_FRAME_INTERVAL == 0:
-                return_home(img, left_motor, right_motor,
-                            step=step_count // DETECTION_FRAME_INTERVAL, destination_ids=HOME_IDS)
+            # if step_count % DETECTION_FRAME_INTERVAL == 0:
+            return_home(img, left_motor, right_motor, step=step_count, destination_ids=HOME_IDS)
             if CHASE_BALL:
                 chase_start_time = time.time()
                 print("Returned home. Switching back to BALL_CHASE mode and resetting timer.")
-    
-    robot.cleanup()
+    cleanup()
+    # robot.cleanup()
 
 if __name__ == "__main__":
     main()
