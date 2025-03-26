@@ -8,6 +8,7 @@ from pupil_apriltags import Detector
 import math
 import os
 import serial
+import torch
 
 current_dir = os.path.dirname(__file__)
 relative_path = os.path.join(current_dir, '..', '..', '..', '..', '..', 'weights', 'real-world-detector.pt')
@@ -27,7 +28,7 @@ ROTATION_SPEED = 75
 FORWARD_SPEED = 75
 MAX_MOTOR_SPEED = 150 # Real max speed: 150 | WeBots speed limit:= 6.28 rad/s
 ANGLE_GAIN = 3
-TURN_RATIO = 0.7
+TURN_RATIO = 0 # 0.7
 COMPETITION_START_TIME = 3 # seconds
 GO_HOME_TIMER = 120 # seconds
 
@@ -87,6 +88,7 @@ def load_model(model_pth=MODEL_PATH):
     except Exception as e:
         print(f"Error loading YOLOv11 model: {e}")
         sys.exit(1)
+    model.eval()
     return model
 
 
@@ -129,8 +131,9 @@ def ball_detection(img, model, step_count):
         print("Model inference starting...")
 
         # Run the YOLOv11 model on the image
-        results = model(image_np, conf=CONFIDENCE_THRESHOLD, save=COLLECT_INFERENCE_DATA, 
-                        project=f"predictions/inference_{step_count}.jpg")
+        with torch.no_grad():
+            results = model(image_np, conf=CONFIDENCE_THRESHOLD, save=COLLECT_INFERENCE_DATA, 
+                            project=f"predictions/inference_{step_count}.jpg")
         
         # Process and print detected objects
         result = results[0] # Since there's only one image
@@ -190,8 +193,8 @@ def return_home(img_bytes, left_motor, right_motor, step, destination_ids=[0, 23
     pose = estimate_robot_pose(detected_tags)
     if pose is None:
         print("Could not estimate robot pose from detections.")
-        left_motor.setVelocity(0)
-        right_motor.setVelocity(0)
+        left_motor.setVelocity(FORWARD_SPEED)
+        right_motor.setVelocity(FORWARD_SPEED)
         return
     robot_x, robot_y, robot_theta = pose
     print(f"Robot estimated at x={robot_x:.1f}, y={robot_y:.1f}, θ={math.degrees(robot_theta):.1f}°")
@@ -495,6 +498,13 @@ def save_image(frame, step_count):
     cv2.imwrite(filename, frame)
     print(f"Image saved as {filename}")
 
+def convert_model_to_torchtrace(model, input_example):
+    traced_model = torch.jit.trace(model, input_example)
+    return traced_model
+
+def convert_model_to_torchscript(model):
+    scripted_model = torch.jit.script(model)
+    return scripted_model
 
 def main():
     # Initialise global variables
@@ -506,6 +516,12 @@ def main():
     # Load object detection model
     model = load_model(MODEL_PATH)
     print("1) Object detection model loaded successfully.")
+    
+    # Make model faster (not working...)
+    # input_example = torch.randn(1, 3, IMAGE_HEIGHT, IMAGE_WIDTH)
+    # model = convert_model_to_torchtrace(model, input_example) # better but not supported on ARM64 (Raspberry Pi)
+    # model = convert_model_to_torchscript(model)
+    
     ser = serial.Serial('/dev/ttyACM0', 115200, timeout=1)
     print("2) Serial initialized successfully!")
     if COMPETITION:
