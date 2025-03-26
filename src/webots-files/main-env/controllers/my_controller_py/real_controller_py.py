@@ -7,9 +7,10 @@ import cv2
 from pupil_apriltags import Detector
 import math
 import os
+import serial
 
 current_dir = os.path.dirname(__file__)
-relative_path = os.path.join(current_dir, '..', '..', 'weights', 'best.pt')
+relative_path = os.path.join(current_dir, '..', '..', '..', '..', '..', 'weights', 'real-world-detector.pt')
 MODEL_PATH = os.path.abspath(relative_path)
 
 ################
@@ -17,20 +18,21 @@ MODEL_PATH = os.path.abspath(relative_path)
 ################
 
 # MODEL_PATH = r"yolo11s.pt" # Use standard model instead    
-CONFIDENCE_THRESHOLD = 0.15
+CONFIDENCE_THRESHOLD = 0.5
 DETECTION_FRAME_INTERVAL = 25 # controls how many frames are skipped between apriltag / ball detection is performed
 # CAMERA_NAME = "camera"
 DISTANCE_THRESHOLD = 50 # 300.0
 HOME_IDS = [0, 23]
-ROTATION_SPEED = 4.0
+ROTATION_SPEED = 75
 FORWARD_SPEED = 75
 MAX_MOTOR_SPEED = 150 # Real max speed: 150 | WeBots speed limit:= 6.28 rad/s
 ANGLE_GAIN = 3
 TURN_RATIO = 0.7
 COMPETITION_START_TIME = 3 # seconds
-GO_HOME_TIMER = 10 # seconds
+GO_HOME_TIMER = 120 # seconds
 
 ### CAMERA PARAMETERS ###
+REMOVE_CAM_BUFFER = 10 # frames to be deleted in the camera buffer, before taking new img
 IMAGE_WIDTH = 640
 IMAGE_HEIGHT = 480
 FX = 1600 # focal length along x-axis
@@ -38,13 +40,13 @@ FY = 1600 # focal length along y-axis
 TAG_SIDE_METERS = 0.1 # example: 10cm wide tags
 
 # ROBOT STATES
-COMPETITION = True
+COMPETITION = False
 CHASE_BALL = True
 RETURN_HOME = False
 
 # INDEPENDENT STATES
-COLLECT_DATA = False # save frames to disk, to create training data
-COLLECT_INFERENCE_DATA = False # save inference data to disk, to check out inference results
+COLLECT_DATA = True # save frames to disk, to create training data
+COLLECT_INFERENCE_DATA = True # save inference data to disk, to check out inference results
 
 TAG_POSITIONS = {
     0:  (150, 2000),
@@ -102,7 +104,7 @@ def bytes_to_numpy(img_bytes):
     global IMAGE_WIDTH, IMAGE_HEIGHT
     try:
         # Convert the raw image data to a NumPy array
-        img_array = np.frombuffer(img_bytes, dtype=np.uint8).reshape((IMAGE_HEIGHT, IMAGE_WIDTH, 4))
+        img_array = np.frombuffer(img_bytes, dtype=np.uint8).reshape((IMAGE_WIDTH, IMAGE_HEIGHT, 4))
         # Convert RGBA to RGB by removing the alpha channel and make a copy to ensure writeability
         img_rgb = img_array[:, :, :3].copy()
         return img_rgb
@@ -111,12 +113,12 @@ def bytes_to_numpy(img_bytes):
         return None
 
 
-def ball_detection(img, model):
+def ball_detection(img, model, step_count):
     global COLLECT_INFERENCE_DATA, CONFIDENCE_THRESHOLD, IMAGE_WIDTH, IMAGE_HEIGHT
     x_center_int = None
     try:
         # Convert the raw image data to a NumPy array
-        img_array = np.frombuffer(img, dtype=np.uint8).reshape((IMAGE_HEIGHT, IMAGE_WIDTH, 4))
+        img_array = np.frombuffer(img, dtype=np.uint8).reshape((IMAGE_HEIGHT, IMAGE_WIDTH, 3))
 
         # Convert RGBA to RGB by removing the alpha channel
         img_rgb = img_array[:, :, :3]
@@ -127,8 +129,9 @@ def ball_detection(img, model):
         print("Model inference starting...")
 
         # Run the YOLOv11 model on the image
-        results = model(image_np, conf=CONFIDENCE_THRESHOLD, save=COLLECT_INFERENCE_DATA)
-
+        results = model(image_np, conf=CONFIDENCE_THRESHOLD, save=COLLECT_INFERENCE_DATA, 
+                        project=f"predictions/inference_{step_count}.jpg")
+        
         # Process and print detected objects
         result = results[0] # Since there's only one image
         boxes = result.boxes # Boxes object for bounding box outputs
@@ -433,7 +436,7 @@ def estimate_robot_pose(detections):
 
 
 class Motor:
-    def init(self, name, ser):
+    def __init__(self, name, ser):
         self.name = name
         self.ser = ser
         # Initialize motor hardware here
@@ -441,11 +444,11 @@ class Motor:
     def setVelocity(self, velocity):
         # Send PWM signal or command to motor driver
         print(f"Setting {self.name} motors velocity to {velocity}")
-        command = self.name + velocity
+        command = str(self.name) + " " + str(velocity)
         self.ser.write(command.encode())
 
 
-def init_real_environment():
+def init_real_environment(ser):
     global IMAGE_WIDTH, IMAGE_HEIGHT
     # Initialize the camera using OpenCV
     cap = cv2.VideoCapture(0)  # Open the default camera (change index if needed)
@@ -455,8 +458,8 @@ def init_real_environment():
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, IMAGE_HEIGHT)
 
     # Create motor objects
-    left_motor = Motor('left')
-    right_motor = Motor('right')
+    left_motor = Motor('left', ser)
+    right_motor = Motor('right', ser)
 
     return cap, left_motor, right_motor
 
@@ -466,8 +469,10 @@ def cleanup(cap):
     cv2.destroyAllWindows()
     
 
-# To mimic camera.getImage() in the simulation:
-def get_image(cap):
+def get_image(cap, remove_buffer):
+    # Flush the buffer by grabbing a few frames
+    for _ in range(remove_buffer):
+        cap.grab()
     ret, frame = cap.read()
     if not ret:
         print("Warning: Failed to capture image")
@@ -475,9 +480,25 @@ def get_image(cap):
     return frame
 
 
+def save_image(frame, step_count):
+    # Define the folder path
+    folder = "main_loop_frames"
+    
+    # Create the folder if it doesn't exist
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+    
+    # Define the file name and path
+    filename = f"{folder}/img_{step_count}.png"
+    
+    # Save the image
+    cv2.imwrite(filename, frame)
+    print(f"Image saved as {filename}")
+
+
 def main():
     # Initialise global variables
-    global CHASE_BALL, RETURN_HOME, FORWARD_SPEED, ROTATION_SPEED, TURN_RATIO, COMPETITION, COLLECT_DATA, GO_HOME_TIMER, IMAGE_WIDTH, IMAGE_HEIGHT
+    global CHASE_BALL, RETURN_HOME, FORWARD_SPEED, ROTATION_SPEED, TURN_RATIO, COMPETITION, COLLECT_DATA, GO_HOME_TIMER, IMAGE_WIDTH, IMAGE_HEIGHT, REMOVE_CAM_BUFFER
     # Initialise local variables
     step_count = 0
     prev_x_positions = []
@@ -485,14 +506,16 @@ def main():
     # Load object detection model
     model = load_model(MODEL_PATH)
     print("1) Object detection model loaded successfully.")
+    ser = serial.Serial('/dev/ttyACM0', 115200, timeout=1)
+    print("2) Serial initialized successfully!")
     if COMPETITION:
         print(f"    Competition mode enabled - waiting for {COMPETITION_START_TIME} seconds.")
     
     # Load the robot hardware
     # robot = Robot()
     # timestep, camera, left_motor, right_motor = init_environment(robot)
-    cap, left_motor, right_motor = init_real_environment()
-    print("2) Robot hardware initialized successfully.")
+    cap, left_motor, right_motor = init_real_environment(ser)
+    print("3) Robot hardware initialized successfully.")
     
     if COMPETITION:
         time.sleep(COMPETITION_START_TIME)
@@ -502,19 +525,26 @@ def main():
     chase_start_time = time.time()
     delay = 0.5 # seconds
     
-    print("3) Starting the main loop.")
+    print("4) Starting the main loop.")
     while True:
         # Wait before capturing the next frame
         time.sleep(delay)
         step_count += 1
         
         # Read camera image
-        img = get_image(cap)
+        img = get_image(cap, REMOVE_CAM_BUFFER)
         
         if COLLECT_DATA:
-            pil_img = Image.frombytes('RGB', (IMAGE_HEIGHT, IMAGE_WIDTH), img)
-            filename = f"img_{step_count}.png"
-            pil_img.save(filename)
+            if img is not None:
+                print("saved img")
+                save_image(img, step_count)
+            else:
+                print("Can't save image, cause frame is not recorded correctly!")
+        
+        # if COLLECT_DATA:
+        #     pil_img = Image.frombytes('RGB', (IMAGE_HEIGHT, IMAGE_WIDTH), img)
+        #     filename = f"img_{step_count}.png"
+        #     pil_img.save(filename)
         
         # Check if 15 seconds have elapsed in BALL_CHASE mode.
         if CHASE_BALL and (time.time() - chase_start_time >= GO_HOME_TIMER):
@@ -527,10 +557,11 @@ def main():
             x_positions = []
 
             # if img captured successfully, perform ball detection
-            if img:
-                x_center_int = ball_detection(img, model)
-                if x_center_int is not None:
-                    x_positions.append(x_center_int)
+            # if img:
+            # TODO To-do INCLUDE
+            x_center_int = ball_detection(img, model, step_count)
+            if x_center_int is not None:
+                x_positions.append(x_center_int)
 
             # if current frame has no balls but last one had, then drive towards last ball position
             if not x_positions and prev_x_positions:
