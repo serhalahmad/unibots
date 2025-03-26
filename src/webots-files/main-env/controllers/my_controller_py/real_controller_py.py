@@ -476,32 +476,33 @@ def get_image(cap):
 
 
 def main():
-    global IMAGE_WIDTH, IMAGE_HEIGHT
     # Initialise global variables
-    global CHASE_BALL, RETURN_HOME, FORWARD_SPEED, ROTATION_SPEED, TURN_RATIO, COMPETITION, COLLECT_DATA, GO_HOME_TIMER
+    global CHASE_BALL, RETURN_HOME, FORWARD_SPEED, ROTATION_SPEED, TURN_RATIO, COMPETITION, COLLECT_DATA, GO_HOME_TIMER, IMAGE_WIDTH, IMAGE_HEIGHT
     # Initialise local variables
     step_count = 0
     prev_x_positions = []
-    previous_mode = "CHASE_BALL"
-    
+    print("Starting robot...")
     # Load object detection model
     model = load_model(MODEL_PATH)
+    print("1) Object detection model loaded successfully.")
     if COMPETITION:
-        print(f"Competition mode enabled - waiting for {COMPETITION_START_TIME} seconds.")
+        print(f"    Competition mode enabled - waiting for {COMPETITION_START_TIME} seconds.")
     
     # Load the robot hardware
     # robot = Robot()
     # timestep, camera, left_motor, right_motor = init_environment(robot)
     cap, left_motor, right_motor = init_real_environment()
+    print("2) Robot hardware initialized successfully.")
     
     if COMPETITION:
         time.sleep(COMPETITION_START_TIME)
-        print(f"{COMPETITION_START_TIME} seconds have passed. Starting the competition.")
+        print(f"    {COMPETITION_START_TIME} seconds have passed. Starting the competition.")
 
     # Initialize time crucial methods
     chase_start_time = time.time()
+    delay = 0.5 # seconds
     
-    delay = 0.5  # seconds
+    print("3) Starting the main loop.")
     while True:
         # Wait before capturing the next frame
         time.sleep(delay)
@@ -509,11 +510,6 @@ def main():
         
         # Read camera image
         img = get_image(cap)
-        
-        # Process the image if it was captured successfully
-        if img is not None:
-            # Your processing code goes here
-            pass
         
         if COLLECT_DATA:
             pil_img = Image.frombytes('RGB', (IMAGE_HEIGHT, IMAGE_WIDTH), img)
@@ -524,19 +520,19 @@ def main():
         if CHASE_BALL and (time.time() - chase_start_time >= GO_HOME_TIMER):
             CHASE_BALL = False
             RETURN_HOME = True
-            print(f"{GO_HOME_TIMER} seconds elapsed in BALL_CHASE mode. Switching to RETURN_HOME mode.")
+            print(f"    {GO_HOME_TIMER} seconds elapsed in BALL_CHASE mode. Switching to RETURN_HOME mode.")
         
         if CHASE_BALL:
+            # ball x positions
             x_positions = []
 
+            # if img captured successfully, perform ball detection
             if img:
-                # Perform ball detection at defined intervals
-                # if step_count % DETECTION_FRAME_INTERVAL == 0:
                 x_center_int = ball_detection(img, model)
                 if x_center_int is not None:
                     x_positions.append(x_center_int)
 
-            # if step_count % DETECTION_FRAME_INTERVAL == 0:
+            # if current frame has no balls but last one had, then drive towards last ball position
             if not x_positions and prev_x_positions:
                 a = x_positions.copy()
                 x_positions = prev_x_positions.copy()
