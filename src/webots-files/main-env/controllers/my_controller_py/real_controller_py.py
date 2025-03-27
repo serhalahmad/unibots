@@ -170,7 +170,7 @@ def get_destination_coordinate(destination_ids):
     return ((x1 + x2)/2.0, (y1 + y2)/2.0)
 
 
-def return_home(img_bytes, left_motor, right_motor, step, destination_ids=[0, 23]):
+def return_home(img_bytes, wheel_motors, step, destination_ids=[0, 23]):
     global CHASE_BALL, RETURN_HOME, DISTANCE_THRESHOLD, FORWARD_SPEED, ROTATION_SPEED, MAX_MOTOR_SPEED, ANGLE_GAIN
 
     # 1) Convert bytes -> NumPy array
@@ -185,16 +185,14 @@ def return_home(img_bytes, left_motor, right_motor, step, destination_ids=[0, 23
     if not detected_tags:
         print("No tags detected; rotating in place to find tags.")
         # Slowly rotate in place until the next detection
-        left_motor.setVelocity(-ROTATION_SPEED)
-        right_motor.setVelocity(ROTATION_SPEED)
+        wheel_motors.setVelocity(-ROTATION_SPEED, ROTATION_SPEED)
         return
 
     # 3) Estimate the robot pose (x, y, theta) in mm and radians
     pose = estimate_robot_pose(detected_tags)
     if pose is None:
         print("Could not estimate robot pose from detections.")
-        left_motor.setVelocity(FORWARD_SPEED)
-        right_motor.setVelocity(FORWARD_SPEED)
+        wheel_motors.setVelocity(FORWARD_SPEED, FORWARD_SPEED)
         return
     robot_x, robot_y, robot_theta = pose
     print(f"Robot estimated at x={robot_x:.1f}, y={robot_y:.1f}, θ={math.degrees(robot_theta):.1f}°")
@@ -212,20 +210,18 @@ def return_home(img_bytes, left_motor, right_motor, step, destination_ids=[0, 23
     if distance_to_home < DISTANCE_THRESHOLD:
         # 1) Move backwards for 1 second
         print(f"Within {DISTANCE_THRESHOLD}mm threshold. Moving backwards...")
-        left_motor.setVelocity(-FORWARD_SPEED)
-        right_motor.setVelocity(-FORWARD_SPEED)
+        wheel_motors.setVelocity(-FORWARD_SPEED, -FORWARD_SPEED)
         time.sleep(1.0)
 
         # 2) Rotate away from the home position for 1 second
         print("Rotating away from home corner...")
-        left_motor.setVelocity(FORWARD_SPEED)
-        right_motor.setVelocity(-FORWARD_SPEED)
+        wheel_motors.setVelocity(ROTATION_SPEED, -ROTATION_SPEED)
         start = time.time()
         time.sleep(1.0)
 
         # 3) Switch back to CHASE_BALL mode
-        left_motor.setVelocity(0)
-        right_motor.setVelocity(0)
+        print("Moving forward to chase balls...")
+        wheel_motors.setVelocity(FORWARD_SPEED, FORWARD_SPEED)
         CHASE_BALL = True
         RETURN_HOME = False
         print("DESTINATION ARRIVED, switching to CHASE_BALL mode.")
@@ -246,8 +242,7 @@ def return_home(img_bytes, left_motor, right_motor, step, destination_ids=[0, 23
     left_speed = max(-MAX_MOTOR_SPEED, min(MAX_MOTOR_SPEED, left_speed))
     right_speed = max(-MAX_MOTOR_SPEED, min(MAX_MOTOR_SPEED, right_speed))
 
-    left_motor.setVelocity(left_speed)
-    right_motor.setVelocity(right_speed)
+    wheel_motors.setVelocity(left_speed, right_speed)
 
     print(f"Distance to home = {distance_to_home:.1f} mm, angle diff = {math.degrees(angle_diff):.1f}°")
     print(f"Setting left={left_speed:.2f}, right={right_speed:.2f}")
@@ -447,6 +442,7 @@ class Motor:
     def setVelocity(self, velocity):
         # Send PWM signal or command to motor driver
         print(f"Setting {self.name} motors velocity to {velocity}")
+        # Example: "setVelocity 40 75" (left motor 40, right motor 75)
         command = str(self.name) + " " + str(velocity)
         self.ser.write(command.encode())
 
@@ -461,10 +457,9 @@ def init_real_environment(ser):
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, IMAGE_HEIGHT)
 
     # Create motor objects
-    left_motor = Motor('left', ser)
-    right_motor = Motor('right', ser)
+    wheel_motors = Motor('setVelocity', ser)
 
-    return cap, left_motor, right_motor
+    return cap, wheel_motors
 
 
 def cleanup(cap):
@@ -529,8 +524,8 @@ def main():
     
     # Load the robot hardware
     # robot = Robot()
-    # timestep, camera, left_motor, right_motor = init_environment(robot)
-    cap, left_motor, right_motor = init_real_environment(ser)
+    # timestep, camera, wheel_motors = init_environment(robot)
+    cap, wheel_motors = init_real_environment(ser)
     print("3) Robot hardware initialized successfully.")
     
     if COMPETITION:
@@ -586,22 +581,19 @@ def main():
                 prev_x_positions = a.copy()
             elif not x_positions and not prev_x_positions:
                 print("Rotate right in place to find ball")
-                left_motor.setVelocity(ROTATION_SPEED)
-                right_motor.setVelocity(-ROTATION_SPEED)
+                wheel_motors.setVelocity(ROTATION_SPEED, -ROTATION_SPEED)
             
             if x_positions:
                 # Simple decision: if the last detected ball is to the right, move right, otherwise left.
                 if x_positions[-1] > IMAGE_WIDTH / 2:
                     print("Move to the right")
-                    left_motor.setVelocity(FORWARD_SPEED)
-                    right_motor.setVelocity(FORWARD_SPEED * TURN_RATIO)
+                    wheel_motors.setVelocity(FORWARD_SPEED, FORWARD_SPEED * TURN_RATIO)
                 else:
                     print("Move to the left")
-                    left_motor.setVelocity(FORWARD_SPEED * TURN_RATIO)
-                    right_motor.setVelocity(FORWARD_SPEED)
+                    wheel_motors.setVelocity(FORWARD_SPEED * TURN_RATIO, FORWARD_SPEED)
         elif RETURN_HOME:
             # if step_count % DETECTION_FRAME_INTERVAL == 0:
-            return_home(img, left_motor, right_motor, step=step_count, destination_ids=HOME_IDS)
+            return_home(img, wheel_motors, step=step_count, destination_ids=HOME_IDS)
             if CHASE_BALL:
                 chase_start_time = time.time()
                 print("Returned home. Switching back to BALL_CHASE mode and resetting timer.")
