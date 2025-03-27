@@ -27,7 +27,7 @@ HOME_IDS = [0, 23]
 ROTATION_SPEED = 75
 FORWARD_SPEED = 75
 MAX_MOTOR_SPEED = 150 # Real max speed: 150 | WeBots speed limit:= 6.28 rad/s
-ANGLE_GAIN = 3
+ANGLE_GAIN = 12 # simulation is 3 / real: 3-20 *(left 48, right 102)
 TURN_RATIO = 0 # 0.7
 COMPETITION_START_TIME = 3 # seconds
 GO_HOME_TIMER = 120 # seconds
@@ -42,8 +42,8 @@ TAG_SIDE_METERS = 0.1 # example: 10cm wide tags
 
 # ROBOT STATES
 COMPETITION = False
-CHASE_BALL = True
-RETURN_HOME = False
+CHASE_BALL = False
+RETURN_HOME = True
 
 # INDEPENDENT STATES
 COLLECT_DATA = True # save frames to disk, to create training data
@@ -106,7 +106,7 @@ def bytes_to_numpy(img_bytes):
     global IMAGE_WIDTH, IMAGE_HEIGHT
     try:
         # Convert the raw image data to a NumPy array
-        img_array = np.frombuffer(img_bytes, dtype=np.uint8).reshape((IMAGE_WIDTH, IMAGE_HEIGHT, 4))
+        img_array = np.frombuffer(img_bytes, dtype=np.uint8).reshape((IMAGE_HEIGHT, IMAGE_WIDTH, 3))
         # Convert RGBA to RGB by removing the alpha channel and make a copy to ensure writeability
         img_rgb = img_array[:, :, :3].copy()
         return img_rgb
@@ -192,7 +192,7 @@ def return_home(img_bytes, wheel_motors, step, destination_ids=[0, 23]):
     pose = estimate_robot_pose(detected_tags)
     if pose is None:
         print("Could not estimate robot pose from detections.")
-        wheel_motors.setVelocity(FORWARD_SPEED, FORWARD_SPEED)
+        wheel_motors.setVelocity(-ROTATION_SPEED, ROTATION_SPEED)
         return
     robot_x, robot_y, robot_theta = pose
     print(f"Robot estimated at x={robot_x:.1f}, y={robot_y:.1f}, θ={math.degrees(robot_theta):.1f}°")

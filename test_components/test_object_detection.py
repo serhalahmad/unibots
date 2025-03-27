@@ -4,15 +4,17 @@ import os
 
 # Configuration parameters
 CONFIDENCE_THRESHOLD = 0.5
-COLLECT_INFERENCE_DATA = False  # Set to True if you want to save the predicted images
+COLLECT_INFERENCE_DATA = True  # Set to True if you want to save the predicted images
 step_count = 0
 
 current_dir = os.path.dirname(__file__)
-relative_path = os.path.join(current_dir, '..', 'weights', 'real-world-detector.pt')
+# relative_path = os.path.join(current_dir, '..', 'weights', 'real-world-detector.pt')
+# relative_path = os.path.join(current_dir, '..', 'weights', 'new-weights', 'yolos-3.onnx')
+relative_path = os.path.join(current_dir, '..', 'weights', '0-simple.mnn')
 MODEL_PATH = os.path.abspath(relative_path)
 
 # Load the YOLO model (update the model path as needed)
-model = YOLO(MODEL_PATH)
+model = YOLO(MODEL_PATH, task='detect')
 
 # Open the webcam (device 0)
 cap = cv2.VideoCapture(0)
@@ -23,6 +25,8 @@ if not cap.isOpened():
 print("Press 'q' to quit the inference loop.")
 
 while True:
+    for _ in range(10):
+        cap.grab()
     ret, frame = cap.read()
     if not ret:
         print("Error: Unable to retrieve frame. Exiting...")
@@ -32,7 +36,7 @@ while True:
     results = model(frame,
                     conf=CONFIDENCE_THRESHOLD,
                     save=COLLECT_INFERENCE_DATA,
-                    project=f"predictions/inference_{step_count}.jpg")
+                    project=f"predictions")
     
     # Process the results (assumes single image inference)
     result = results[0]
@@ -52,9 +56,6 @@ while True:
         print(f"Image {step_count}: []")
 
     step_count += 1
-
-    # Optionally, display the current frame
-    cv2.imshow("Webcam Inference", frame)
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
