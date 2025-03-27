@@ -3,3 +3,5 @@
 *.jpg
 *.jpeg
 *.env
+src/Ping-Pong*
+src/Rugby-Ball*
