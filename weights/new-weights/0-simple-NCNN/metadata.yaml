@@ -1,0 +1,18 @@
+description: Ultralytics YOLO11n model trained on /content/drive/MyDrive/AI/Unibots25/datasets/data.yaml
+author: Ultralytics
+date: '2025-03-26T23:34:38.040203'
+version: 8.3.96
+license: AGPL-3.0 License (https://ultralytics.com/license)
+docs: https://docs.ultralytics.com
+stride: 32
+task: detect
+batch: 1
+imgsz:
+- 640
+- 640
+names:
+  0: rugby-balls
+  1: ping-pong-ball
+args:
+  batch: 1
+  half: false
