@@ -439,11 +439,12 @@ class Motor:
         self.ser = ser
         # Initialize motor hardware here
 
-    def setVelocity(self, velocity):
+    def setVelocity(self, left_velocity, right_velocity):
         # Send PWM signal or command to motor driver
-        print(f"Setting {self.name} motors velocity to {velocity}")
+        print(f"{self.name} for left wheels to {left_velocity} and right wheels to {right_velocity}")
         # Example: "setVelocity 40 75" (left motor 40, right motor 75)
-        command = str(self.name) + " " + str(velocity)
+        command = str(self.name) + " " + str(left_velocity) + " " + str(right_velocity) + '\n'
+        print(command)
         self.ser.write(command.encode())
 
 
@@ -502,103 +503,87 @@ def convert_model_to_torchscript(model):
     return scripted_model
 
 def main():
-    # Initialise global variables
-    global CHASE_BALL, RETURN_HOME, FORWARD_SPEED, ROTATION_SPEED, TURN_RATIO, COMPETITION, COLLECT_DATA, GO_HOME_TIMER, IMAGE_WIDTH, IMAGE_HEIGHT, REMOVE_CAM_BUFFER
-    # Initialise local variables
-    step_count = 0
-    prev_x_positions = []
-    print("Starting robot...")
-    # Load object detection model
-    model = load_model(MODEL_PATH)
-    print("1) Object detection model loaded successfully.")
-    
-    # Make model faster (not working...)
-    # input_example = torch.randn(1, 3, IMAGE_HEIGHT, IMAGE_WIDTH)
-    # model = convert_model_to_torchtrace(model, input_example) # better but not supported on ARM64 (Raspberry Pi)
-    # model = convert_model_to_torchscript(model)
-    
-    ser = serial.Serial('/dev/ttyACM0', 115200, timeout=1)
-    print("2) Serial initialized successfully!")
-    if COMPETITION:
-        print(f"    Competition mode enabled - waiting for {COMPETITION_START_TIME} seconds.")
-    
-    # Load the robot hardware
-    # robot = Robot()
-    # timestep, camera, wheel_motors = init_environment(robot)
-    cap, wheel_motors = init_real_environment(ser)
-    print("3) Robot hardware initialized successfully.")
-    
-    if COMPETITION:
-        time.sleep(COMPETITION_START_TIME)
-        print(f"    {COMPETITION_START_TIME} seconds have passed. Starting the competition.")
-
-    # Initialize time crucial methods
-    chase_start_time = time.time()
-    delay = 0.5 # seconds
-    
-    print("4) Starting the main loop.")
-    while True:
-        # Wait before capturing the next frame
-        time.sleep(delay)
-        step_count += 1
+    try:
+        # Initialise global variables
+        global CHASE_BALL, RETURN_HOME, FORWARD_SPEED, ROTATION_SPEED, TURN_RATIO, COMPETITION, COLLECT_DATA, GO_HOME_TIMER, IMAGE_WIDTH, IMAGE_HEIGHT, REMOVE_CAM_BUFFER
+        # Initialise local variables
+        step_count = 0
+        prev_x_positions = []
+        print("Starting robot...")
         
-        # Read camera image
-        img = get_image(cap, REMOVE_CAM_BUFFER)
+        # Load object detection model
+        model = load_model(MODEL_PATH)
+        print("1) Object detection model loaded successfully.")
         
-        if COLLECT_DATA:
-            if img is not None:
-                print("saved img")
-                save_image(img, step_count)
-            else:
-                print("Can't save image, cause frame is not recorded correctly!")
+        ser = serial.Serial('/dev/ttyACM0', 115200, timeout=1)
+        print("2) Serial initialized successfully!")
         
-        # if COLLECT_DATA:
-        #     pil_img = Image.frombytes('RGB', (IMAGE_HEIGHT, IMAGE_WIDTH), img)
-        #     filename = f"img_{step_count}.png"
-        #     pil_img.save(filename)
+        if COMPETITION:
+            print(f"    Competition mode enabled - waiting for {COMPETITION_START_TIME} seconds.")
         
-        # Check if 15 seconds have elapsed in BALL_CHASE mode.
-        if CHASE_BALL and (time.time() - chase_start_time >= GO_HOME_TIMER):
-            CHASE_BALL = False
-            RETURN_HOME = True
-            print(f"    {GO_HOME_TIMER} seconds elapsed in BALL_CHASE mode. Switching to RETURN_HOME mode.")
+        cap, wheel_motors = init_real_environment(ser)
+        print("3) Robot hardware initialized successfully.")
         
-        if CHASE_BALL:
-            # ball x positions
-            x_positions = []
-
-            # if img captured successfully, perform ball detection
-            # if img:
-            # TODO To-do INCLUDE
-            x_center_int = ball_detection(img, model, step_count)
-            if x_center_int is not None:
-                x_positions.append(x_center_int)
-
-            # if current frame has no balls but last one had, then drive towards last ball position
-            if not x_positions and prev_x_positions:
-                a = x_positions.copy()
-                x_positions = prev_x_positions.copy()
-                prev_x_positions = a.copy()
-            elif not x_positions and not prev_x_positions:
-                print("Rotate right in place to find ball")
-                wheel_motors.setVelocity(ROTATION_SPEED, -ROTATION_SPEED)
+        if COMPETITION:
+            time.sleep(COMPETITION_START_TIME)
+            print(f"    {COMPETITION_START_TIME} seconds have passed. Starting the competition.")
+        
+        chase_start_time = time.time()
+        delay = 0.5  # seconds
+        
+        print("4) Starting the main loop.")
+        while True:
+            time.sleep(delay)
+            step_count += 1
             
-            if x_positions:
-                # Simple decision: if the last detected ball is to the right, move right, otherwise left.
-                if x_positions[-1] > IMAGE_WIDTH / 2:
-                    print("Move to the right")
-                    wheel_motors.setVelocity(FORWARD_SPEED, FORWARD_SPEED * TURN_RATIO)
+            img = get_image(cap, REMOVE_CAM_BUFFER)
+            
+            if COLLECT_DATA:
+                if img is not None:
+                    print("saved img")
+                    save_image(img, step_count)
                 else:
-                    print("Move to the left")
-                    wheel_motors.setVelocity(FORWARD_SPEED * TURN_RATIO, FORWARD_SPEED)
-        elif RETURN_HOME:
-            # if step_count % DETECTION_FRAME_INTERVAL == 0:
-            return_home(img, wheel_motors, step=step_count, destination_ids=HOME_IDS)
+                    print("Can't save image, cause frame is not recorded correctly!")
+            
+            if CHASE_BALL and (time.time() - chase_start_time >= GO_HOME_TIMER):
+                CHASE_BALL = False
+                RETURN_HOME = True
+                print(f"    {GO_HOME_TIMER} seconds elapsed in BALL_CHASE mode. Switching to RETURN_HOME mode.")
+            
             if CHASE_BALL:
-                chase_start_time = time.time()
-                print("Returned home. Switching back to BALL_CHASE mode and resetting timer.")
-    cleanup()
-    # robot.cleanup()
+                x_positions = []
+                x_center_int = ball_detection(img, model, step_count)
+                if x_center_int is not None:
+                    x_positions.append(x_center_int)
+                
+                if not x_positions and prev_x_positions:
+                    a = x_positions.copy()
+                    x_positions = prev_x_positions.copy()
+                    prev_x_positions = a.copy()
+                elif not x_positions and not prev_x_positions:
+                    print("Rotate right in place to find ball")
+                    wheel_motors.setVelocity(ROTATION_SPEED, -ROTATION_SPEED)
+                
+                if x_positions:
+                    if x_positions[-1] > IMAGE_WIDTH / 2:
+                        print("Move to the right")
+                        wheel_motors.setVelocity(FORWARD_SPEED, FORWARD_SPEED * TURN_RATIO)
+                    else:
+                        print("Move to the left")
+                        wheel_motors.setVelocity(FORWARD_SPEED * TURN_RATIO, FORWARD_SPEED)
+            elif RETURN_HOME:
+                return_home(img, wheel_motors, step=step_count, destination_ids=HOME_IDS)
+                if CHASE_BALL:
+                    chase_start_time = time.time()
+                    print("Returned home. Switching back to BALL_CHASE mode and resetting timer.")
+    
+    except Exception as e:
+        print(f"Error occurred: {e}")
+        wheel_motors.setVelocity(0, 0)
+        print("Robot stopped for safety.")
+    finally:
+        print("Robot stopped due to Crtl + C")
+        cleanup(cap)
 
 if __name__ == "__main__":
     main()
