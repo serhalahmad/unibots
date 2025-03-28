@@ -9,18 +9,20 @@
 // All motor names are when looking at the top of the robot and it is upward
 // Also, the control pins are in a way that they are consecutively alligned with the motor pins
 #define SERVO_PIN 6
-#define DC_MOTOR_FR_PWM_PIN 9
-#define DC_MOTOR_FL_PWM_PIN 10
-#define DC_MOTOR_BR_PWM_PIN 9
-#define DC_MOTOR_BL_PWM_PIN 10
-#define DC_MOTOR_FR_CW_PIN 7
-#define DC_MOTOR_FL_CW_PIN 8
-#define DC_MOTOR_BR_CW_PIN 7
-#define DC_MOTOR_BL_CW_PIN 8
-#define DC_MOTOR_FR_CCW_PIN 12
-#define DC_MOTOR_FL_CCW_PIN 13
-#define DC_MOTOR_BR_CCW_PIN 12
-#define DC_MOTOR_BL_CCW_PIN 13
+#define DC_MOTOR_FR_PWM_PIN 10
+#define DC_MOTOR_FL_PWM_PIN 9
+#define DC_MOTOR_BR_PWM_PIN 10
+#define DC_MOTOR_BL_PWM_PIN 9
+
+#define DC_MOTOR_FR_CW_PIN 13
+#define DC_MOTOR_FL_CW_PIN 12
+#define DC_MOTOR_BR_CW_PIN 13
+#define DC_MOTOR_BL_CW_PIN 12
+
+#define DC_MOTOR_FR_CCW_PIN 8
+#define DC_MOTOR_FL_CCW_PIN 7
+#define DC_MOTOR_BR_CCW_PIN 8
+#define DC_MOTOR_BL_CCW_PIN 7
 
 UnibotsServo backServo(SERVO_PIN, 90);                                                    // servo for the back of the rugby storage
 UnibotsDCMotor dc_motor_fr(DC_MOTOR_FR_PWM_PIN, DC_MOTOR_FR_CW_PIN, DC_MOTOR_FR_CCW_PIN); // Front-right motor
@@ -84,8 +86,9 @@ void loop()
     // dc_motor_br.set_speed(right_speed);
     //
 
-    // int right_speed = -40;
-    // int left_speed = 40;
+    // NOTE: For some reason, we have to comment this out to test serial mode
+    // int right_speed = -100;
+    // int left_speed = 100;
     // dc_motor_fr.set_speed(right_speed);
     // dc_motor_fl.set_speed(left_speed);
     // dc_motor_br.set_speed(right_speed);
@@ -96,7 +99,7 @@ void loop()
     // dc_motor_br.stop();
     // dc_motor_bl.stop();
     // delay(1000);
-    break;
+    // break;
   case SERIAL_COM_MODE:
     if (Serial.available())
     {
