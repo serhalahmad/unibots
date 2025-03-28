@@ -23,7 +23,8 @@ CONFIDENCE_THRESHOLD = 0.5
 DETECTION_FRAME_INTERVAL = 25 # controls how many frames are skipped between apriltag / ball detection is performed
 # CAMERA_NAME = "camera"
 DISTANCE_THRESHOLD = 500 # 350.0 # Determinisitc works perfect so: blue zone 350 red zone 500 
-HOME_IDS = [23, 0]
+# HOME_IDS = [23, 0]
+HOME_IDS = [11, 12]
 FORWARD_SPEED = 75
 ROTATION_SPEED = 50
 TURN_SPEED_RATIO = 0.7 # Speed ratio of ROTATION_SPEED - to keep moving towards last april tag position
@@ -224,7 +225,7 @@ def return_home_deterministic(img_bytes, camera, wheel_motors, step):
     global LAST_TAG_SIDE, ROTATION_SPEED, TURN_SPEED_RATIO, DISTANCE_THRESHOLD, HOME_TAGS_CENTER_TOLERANCE, IMAGE_WIDTH, RETURN_HOME, CHASE_BALL, HOME_IDS
 
     # 1) Convert bytes → NumPy array.
-    img_array = bytes_to_numpy(img_bytes, camera)
+    img_array = bytes_to_numpy(img_bytes)
     if img_array is None:
         print("ERROR: Failed to convert image bytes to a NumPy array.")
         return
