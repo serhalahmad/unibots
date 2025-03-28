@@ -21,22 +21,20 @@ MODEL_PATH = os.path.abspath(relative_path)
 CONFIDENCE_THRESHOLD = 0.15
 DETECTION_FRAME_INTERVAL = 30 # controls how many frames are skipped between apriltag / ball detection is performed
 CAMERA_NAME = "camera"
-OBJECT_DETECTION_CLASSES = ["rugby-balls", "ping-pong-ball"]
 DISTANCE_THRESHOLD = 500 # 350.0 # Determinisitc works perfect so: blue zone 350 red zone 500 
 HOME_IDS = [23, 0] # [23, 0]!!!! OR [5, 6] OR [11, 12] OR [17, 18]
 FORWARD_SPEED = 3.0  # Adjust this value as needed
-ROTATION_SPEED = 1.0
+ROTATION_SPEED = 2.0
 TURN_SPEED_RATIO = 0.7 # Speed ratio of ROTATION_SPEED - to keep moving towards last april tag position
 MAX_MOTOR_SPEED = 3 # WeBots speed limit:= 6.28 rad/s
 ANGLE_GAIN = 3
 TURN_RATIO = 0.7
 COMPETITION_START_TIME = 3 # seconds
-GO_HOME_TIMER = 60 # seconds
+GO_HOME_TIMER = 10 # seconds
 LAST_TAG_SIDE = None
 HOME_TAGS_CENTER_TOLERANCE = 50 # pixels
-# Original working verison: 1920x1080 | Old: 680x480 | New: 640x640
-IMAGE_WIDTH = 640
-IMAGE_HEIGHT = 640
+IMAGE_WIDTH = 680
+IMAGE_HEIGHT = 480
 
 TOP_TAGS = set(range(0, 6))      # IDs 0..5
 RIGHT_TAGS = set(range(6, 12))   # IDs 6..11
@@ -50,8 +48,8 @@ TAG_SIDE_METERS = 0.1 # example: 10cm wide tags
 
 # ROBOT STATES
 COMPETITION = False
-CHASE_BALL = True
-RETURN_HOME = False
+CHASE_BALL = False
+RETURN_HOME = True
 
 # INDEPENDENT STATES
 COLLECT_DATA = False # save frames to disk, to create training data
@@ -146,10 +144,11 @@ def bytes_to_numpy(img_bytes, camera):
     Returns:
         numpy.ndarray or None: RGB image as a NumPy array or None if conversion fails.
     """
-    global IMAGE_HEIGHT, IMAGE_WIDTH
     try:
+        width = camera.getWidth()
+        height = camera.getHeight()
         # Convert the raw image data to a NumPy array
-        img_array = np.frombuffer(img_bytes, dtype=np.uint8).reshape((IMAGE_HEIGHT, IMAGE_WIDTH, 4))
+        img_array = np.frombuffer(img_bytes, dtype=np.uint8).reshape((height, width, 4))
         # Convert RGBA to RGB by removing the alpha channel and make a copy to ensure writeability
         img_rgb = img_array[:, :, :3].copy()
         return img_rgb
@@ -159,11 +158,16 @@ def bytes_to_numpy(img_bytes, camera):
 
 
 def ball_detection(img, camera, model):
-    global COLLECT_INFERENCE_DATA, CONFIDENCE_THRESHOLD, IMAGE_WIDTH, IMAGE_HEIGHT, OBJECT_DETECTION_CLASSES
-    detections = []  # List to store info for each detected ball
+    global COLLECT_INFERENCE_DATA
+    global CONFIDENCE_THRESHOLD
+    x_center_int = None
     try:
+        # Get image dimensions
+        width = camera.getWidth()
+        height = camera.getHeight()
+
         # Convert the raw image data to a NumPy array
-        img_array = np.frombuffer(img, dtype=np.uint8).reshape((IMAGE_HEIGHT, IMAGE_WIDTH, 4))
+        img_array = np.frombuffer(img, dtype=np.uint8).reshape((height, width, 4))
 
         # Convert RGBA to RGB by removing the alpha channel
         img_rgb = img_array[:, :, :3]
@@ -179,41 +183,22 @@ def ball_detection(img, camera, model):
         # Process and print detected objects
         result = results[0]  # Since there's only one image
         boxes = result.boxes  # Boxes object for bounding box outputs
-
-        # Define your class names (must be in the same order as in your model training)
-        
-
         if boxes:
             for box in boxes:
-                # Extract bounding box coordinates (x1, y1, x2, y2)
+                # Extract the bounding box coordinates (x1, y1, x2, y2)
                 x1, y1, x2, y2 = box.xyxy[0]
+                print(box.xyxy)
                 # Calculate the center x position
                 x_center = (x1 + x2) / 2
+
+                # Convert to integer
                 x_center_int = int(x_center.item())
-
-                # Extract class index (assuming box.cls is available) and confidence
-                class_index = int(box.cls.item())
-                confidence = box.conf.item() if hasattr(box, "conf") else 0.0
-                detected_class = OBJECT_DETECTION_CLASSES[class_index] if class_index < len(OBJECT_DETECTION_CLASSES) else "Unknown"
-
-                # Print information about this detection
-                print(f"Detected {detected_class} with confidence {confidence:.2f} at center x: {x_center_int}")
-                print(f"Bounding box: ({x1:.2f}, {y1:.2f}, {x2:.2f}, {y2:.2f})")
-
-                # Append detection info to the list
-                detections.append({
-                    "class": detected_class,
-                    "confidence": confidence,
-                    "center_x": x_center_int,
-                    "bbox": (float(x1), float(y1), float(x2), float(y2))
-                })
         else:
-            print("No balls detected in the image.")
+            print("Image 0: []")
 
     except Exception as e:
         print(f"Error during image processing or detection: {e}")
-    return detections
-
+    return x_center_int
 
 
 def arrival_routine(left_motor, right_motor, robot):
@@ -722,14 +707,13 @@ def estimate_robot_pose(detections):
 
 
 def main():
-    global CHASE_BALL, RETURN_HOME, FORWARD_SPEED, ROTATION_SPEED, TURN_RATIO, COMPETITION, COLLECT_DATA, GO_HOME_TIMER, IMAGE_WIDTH, IMAGE_HEIGHT, DETECTION_FRAME_INTERVAL, MODEL_PATH, CAMERA_NAME, OBJECT_DETECTION_CLASSES, COMPETITION_START_TIME, HOME_IDS, TAG_POSITIONS, HOME_POSITIONS
+    global CHASE_BALL, RETURN_HOME, FORWARD_SPEED, ROTATION_SPEED, TURN_RATIO, COMPETITION, COLLECT_DATA, GO_HOME_TIMER
     model = load_model(MODEL_PATH)
     if COMPETITION:
         print(f"Competition mode enabled - waiting for {COMPETITION_START_TIME} seconds.")
     
     robot = Robot()
     timestep, camera, left_motor, right_motor = init_environment(robot)
-    print(f"Camera resolution: {IMAGE_WIDTH}x{IMAGE_HEIGHT}")
     step_count = 0
     prev_x_positions = []
 
@@ -749,7 +733,7 @@ def main():
         img = camera.getImage()
         
         if COLLECT_DATA:
-            pil_img = Image.frombytes('RGB', (IMAGE_WIDTH, IMAGE_HEIGHT), img)
+            pil_img = Image.frombytes('RGB', (camera.width, camera.height), img)
             filename = f"img_{step_count}.png"
             pil_img.save(filename)
         
@@ -765,14 +749,9 @@ def main():
             if img:
                 # Perform ball detection at defined intervals
                 if step_count % DETECTION_FRAME_INTERVAL == 0:
-                    detections = ball_detection(img, camera, model)
-                    x_center_int = None
-                    if detections:
-                        x_center_int = detections[0]['center_x']
-                        print("Original x_center_int:", x_center_int)
+                    x_center_int = ball_detection(img, camera, model)
+                    if x_center_int is not None:
                         x_positions.append(x_center_int)
-                    else:
-                        print("No detections found.")
 
             if step_count % DETECTION_FRAME_INTERVAL == 0:
                 if not x_positions and prev_x_positions:
@@ -786,7 +765,7 @@ def main():
                 
                 if x_positions:
                     # Simple decision: if the last detected ball is to the right, move right, otherwise left.
-                    if x_positions[-1] > IMAGE_WIDTH / 2:
+                    if x_positions[-1] > camera.getWidth() / 2:
                         print("Move to the right")
                         left_motor.setVelocity(FORWARD_SPEED)
                         right_motor.setVelocity(FORWARD_SPEED * TURN_RATIO)

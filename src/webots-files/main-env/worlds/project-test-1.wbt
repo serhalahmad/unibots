@@ -9,8 +9,8 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/project
 WorldInfo {
 }
 Viewpoint {
-  orientation -0.25211297150023637 0.10276284762922938 0.9622259852802006 2.3940479114866613
-  position 2.164973755034479 -2.0646423924676016 1.9308853511875734
+  orientation 0.19499180741907776 -0.0030135795703782418 -0.9808002413221636 3.1719066781778875
+  position 1.0186879989917725 -0.17211392708839926 0.7878470371028016
 }
 TexturedBackground {
 }
@@ -27,25 +27,25 @@ RectangleArena {
   wallThickness 0.05
 }
 DEF Ball-2 Solid {
-  translation -0.13 0.34 0.0199474
+  translation -0.13 0.34 0.01
   children [
     Shape {
       appearance PBRAppearance {
       }
       geometry Sphere {
-        radius 0.02
+        radius 0.01
       }
     }
   ]
   name "solid(2)"
   boundingObject Sphere {
-    radius 0.02
+    radius 0.01
   }
   physics Physics {
   }
 }
 DEF Ball-1 Solid {
-  translation -0.330182 0.594862 0.0199474
+  translation -0.330182 0.594862 0.01
   rotation 0 0 1 0.9899488552164322
   children [
     Shape {
@@ -54,19 +54,19 @@ DEF Ball-1 Solid {
         metalness 0
       }
       geometry Sphere {
-        radius 0.02
+        radius 0.01
       }
     }
   ]
   name "solid(1)"
   boundingObject Sphere {
-    radius 0.02
+    radius 0.01
   }
   physics Physics {
   }
 }
 DEF Ball-3 Solid {
-  translation -0.411809 0.219913 0.0199474
+  translation -0.411809 0.219913 0.01
   rotation 0 0 1 -1.5885485306518676
   children [
     Shape {
@@ -75,24 +75,24 @@ DEF Ball-3 Solid {
         metalness 0
       }
       geometry Sphere {
-        radius 0.02
+        radius 0.01
       }
     }
   ]
   name "solid(3)"
   boundingObject Sphere {
-    radius 0.02
+    radius 0.01
   }
   physics Physics {
   }
 }
 E-puck {
-  translation -0.409558 -0.0101203 -0.00108069
-  rotation -0.0006300037116673004 -0.0007200216704689381 0.999999542331954 -2.3684053071795863
+  translation -0.476029 -0.0886195 -0.00125063
+  rotation 0.0022769209023177487 0.0001518200601645559 -0.9999973962875472 0.797606
   controller "my_controller_py"
   camera_fieldOfView 1.5
-  camera_width 1920
-  camera_height 1080
+  camera_width 640
+  camera_height 640
   camera_rotation 0 -1 0 0.3
 }
 DEF apriltag-0 Solid {
@@ -857,4 +857,66 @@ DirectionalLight {
 }
 DirectionalLight {
   direction 1 1 0
+}
+DEF rugby-ball Transform {
+  translation -0.252929 -0.437071 0.03
+  rotation 0 0 1 0.785398
+  scale 0.21 0.167 0.167
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 0.305882 0.054902 0.0588235
+        }
+      }
+      geometry Mesh {
+        url [
+          "../objects/rugby-ball.obj"
+        ]
+      }
+    }
+  ]
+}
+DEF rugby-ball Transform {
+  translation -0.493343 -0.408787 0.03
+  rotation 0 0 1 0.785398
+  scale 0.21 0.167 0.167
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 0.0784314 0.345098 0.839216
+        }
+      }
+      geometry Mesh {
+        url [
+          "../objects/rugby-ball.obj"
+        ]
+      }
+    }
+  ]
+}
+DEF rugby-ball Transform {
+  translation -0.75497 -0.14716 0.03
+  rotation 0 0 1 1.8326
+  scale 0.21 0.167 0.167
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 1 1 1
+        }
+        texture ImageTexture {
+          url [
+            "../objects/61713.jpg"
+          ]
+        }
+      }
+      geometry Mesh {
+        url [
+          "../objects/rugby-ball.obj"
+        ]
+      }
+    }
+  ]
 }
