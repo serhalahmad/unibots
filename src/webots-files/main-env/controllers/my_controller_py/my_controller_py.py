@@ -10,7 +10,7 @@ import math
 import os
 
 current_dir = os.path.dirname(__file__)
-relative_path = os.path.join(current_dir, '..', '..', 'weights', 'best.pt')
+relative_path = os.path.join(current_dir, '..', '..', '..', '..', '..', 'weights', 'real-world-detector.pt')
 MODEL_PATH = os.path.abspath(relative_path)
 
 ################
@@ -19,17 +19,24 @@ MODEL_PATH = os.path.abspath(relative_path)
 
 # MODEL_PATH = r"yolo11s.pt" # Use standard model instead    
 CONFIDENCE_THRESHOLD = 0.15
-DETECTION_FRAME_INTERVAL = 25 # controls how many frames are skipped between apriltag / ball detection is performed
+DETECTION_FRAME_INTERVAL = 30 # controls how many frames are skipped between apriltag / ball detection is performed
 CAMERA_NAME = "camera"
-DISTANCE_THRESHOLD = 50 # 300.0
+DISTANCE_THRESHOLD = 150 # 350.0
 HOME_IDS = [0, 23]
-FORWARD_SPEED = 6.0  # Adjust this value as needed
-ROTATION_SPEED = 4.0
-MAX_MOTOR_SPEED = 6.28 # WeBots speed limit:= 6.28 rad/s
+FORWARD_SPEED = 2.0  # Adjust this value as needed
+ROTATION_SPEED = 1.0
+TURN_SPEED_RATIO = 0.75 # Speed ratio of ROTATION_SPEED - to keep moving towards last april tag position
+MAX_MOTOR_SPEED = 2.28 # WeBots speed limit:= 6.28 rad/s
 ANGLE_GAIN = 3
 TURN_RATIO = 0.7
 COMPETITION_START_TIME = 3 # seconds
 GO_HOME_TIMER = 10 # seconds
+LAST_TAG_SIDE = None
+
+TOP_TAGS = set(range(0, 6))      # IDs 0..5
+RIGHT_TAGS = set(range(6, 12))   # IDs 6..11
+BOTTOM_TAGS = set(range(12, 18)) # IDs 12..17
+LEFT_TAGS = set(range(18, 24))   # IDs 18..23
 
 ### CAMERA PARAMETERS ###
 FX = 1600 # focal length along x-axis
@@ -37,39 +44,55 @@ FY = 1600 # focal length along y-axis
 TAG_SIDE_METERS = 0.1 # example: 10cm wide tags
 
 # ROBOT STATES
-COMPETITION = True
-CHASE_BALL = True
-RETURN_HOME = False
+COMPETITION = False
+CHASE_BALL = False
+RETURN_HOME = True
 
 # INDEPENDENT STATES
 COLLECT_DATA = False # save frames to disk, to create training data
-COLLECT_INFERENCE_DATA = False # save inference data to disk, to check out inference results
+COLLECT_INFERENCE_DATA = True # save inference data to disk, to check out inference results
+
+# Weird coordinates, because ESU is NOT SUPPORTED in Webots!!!
+# Arena corners / Start Positions: 
+#   North-West: (-1000, 1000)
+#   North-East: (1000, 1000)
+#   South-East: (1000, -1000)
+#   South-West: (-1000, -1000)
+
+# Distances along each edge (in mm): 150, 300, 300, 500, 300, 300, 150.
 
 TAG_POSITIONS = {
-    0:  (150, 2000),
-    1:  (450, 2000),
-    2:  (750, 2000),
-    3:  (1250, 2000),
-    4:  (1550, 2000),
-    5:  (1850, 2000),
-    6:  (2000, 1850),
-    7:  (2000, 1550),
-    8:  (2000, 1250),
-    9:  (2000, 750),
-    10: (2000, 450),
-    11: (2000, 150),
-    12: (1850, 0),
-    13: (1550, 0),
-    14: (1250, 0),
-    15: (750, 0),
-    16: (450, 0),
-    17: (150, 0),
-    18: (0, 150),
-    19: (0, 450),
-    20: (0, 750),
-    21: (0, 1250),
-    22: (0, 1550),
-    23: (0, 1850),
+    0:  (-850, 1000),  # Top edge, 150 mm from left (NW) corner
+    1:  (-550, 1000),
+    2:  (-250, 1000),
+    3:  (250, 1000),
+    4:  (550, 1000),
+    5:  (850, 1000),   # Top edge, 150 mm from right (NE) corner
+    6:  (1000, 850),   # Right edge, 150 mm from top (NE) corner
+    7:  (1000, 550),
+    8:  (1000, 250),
+    9:  (1000, -250),
+    10: (1000, -550),
+    11: (1000, -850),  # Right edge, 150 mm from bottom (SE) corner
+    12: (850, -1000),  # Bottom edge, 150 mm from right (SE) corner
+    13: (550, -1000),
+    14: (250, -1000),
+    15: (-250, -1000),
+    16: (-550, -1000),
+    17: (-850, -1000), # Bottom edge, 150 mm from left (SW) corner
+    18: (-1000, -850), # Left edge, 150 mm from bottom (SW) corner
+    19: (-1000, -550),
+    20: (-1000, -250),
+    21: (-1000, 250),
+    22: (-1000, 550),
+    23: (-1000, 850),  # Left edge, 150 mm from top (NW) corner
+}
+
+HOME_POSITIONS = {
+    (0, 23): (-1000, 1000),    # NW corner: midpoint of TAG_POSITIONS[0] and TAG_POSITIONS[23]
+    (5, 6): (1000, 1000),      # NE corner: midpoint of TAG_POSITIONS[5] and TAG_POSITIONS[6]
+    (11, 12): (1000, -1000),   # SE corner: midpoint of TAG_POSITIONS[11] and TAG_POSITIONS[12]
+    (17, 18): (-1000, -1000)   # SW corner: midpoint of TAG_POSITIONS[17] and TAG_POSITIONS[18]
 }
 
 
@@ -174,112 +197,257 @@ def ball_detection(img, camera, model):
     return x_center_int
 
 
-def get_destination_coordinate(destination_ids):
+def arrival_routine(left_motor, right_motor, robot):
     """
-    Given two tag IDs that define a corner, return the (x,y) for 'home'.
-    One simple approach is just to average the corner tags' coordinates.
+    Handles the arrival routine when the robot is close enough to home.
+    Backs up for 1 second, rotates away from home for 1 second,
+    stops the motors, and switches the mode from RETURN_HOME to CHASE_BALL.
     """
-    if len(destination_ids) != 2:
-        raise ValueError("destination_ids must have exactly two elements")
-    tid1, tid2 = destination_ids
-    (x1, y1) = TAG_POSITIONS[tid1]
-    (x2, y2) = TAG_POSITIONS[tid2]
-    # For a “corner,” often these two tags are close, so just take midpoint:    
-    return ((x1 + x2)/2.0, (y1 + y2)/2.0)
+    global CHASE_BALL, RETURN_HOME, FORWARD_SPEED, DISTANCE_THRESHOLD
+
+    print(f"Within threshold of {DISTANCE_THRESHOLD} mm. Initiating arrival routine: backing up and rotating away.")
+
+    # Back up for 1 second.
+    left_motor.setVelocity(-FORWARD_SPEED)
+    right_motor.setVelocity(-FORWARD_SPEED)
+    start = time.time()
+    while (time.time() - start) < 1.0:
+        if robot.step(int(robot.getBasicTimeStep())) == -1:
+            break
+
+    # Rotate away from home for 1 second.
+    print("Rotating away from home position...")
+    left_motor.setVelocity(FORWARD_SPEED)
+    right_motor.setVelocity(-FORWARD_SPEED)
+    start = time.time()
+    while (time.time() - start) < 1.0:
+        if robot.step(int(robot.getBasicTimeStep())) == -1:
+            break
+
+    # Stop motors and switch modes.
+    left_motor.setVelocity(0)
+    right_motor.setVelocity(0)
+    CHASE_BALL = True
+    RETURN_HOME = False
+    print("Destination reached. Switching to CHASE_BALL mode.")
 
 
-def return_home(img_bytes, camera, left_motor, right_motor, robot, step, destination_ids=[0, 23]):
-    global CHASE_BALL
-    global RETURN_HOME
-    global DISTANCE_THRESHOLD
-    global FORWARD_SPEED
-    global ROTATION_SPEED
-    global MAX_MOTOR_SPEED
-    global ANGLE_GAIN
+def get_destination_coordinate():
+    """
+    Returns the pre-encoded (x, y) home coordinate based on the global HOME_IDS.
+    """
+    global HOME_POSITIONS, HOME_IDS
+    key = tuple(sorted(HOME_IDS))
+    try:
+        return HOME_POSITIONS[key]
+    except KeyError:
+        raise ValueError(f"HOME_IDS {HOME_IDS} do not map to a known corner.")
+    
 
-    # 1) Convert bytes → NumPy array
+def return_home_visual_servo(img_bytes, camera, left_motor, right_motor, robot, step, home_ids=HOME_IDS):
+    """
+    Visual-servo approach to drive home without relying solely on detecting the home corner tags.
+    1) If home tag(s) are visible, servo on them directly.
+    2) Otherwise, servo on whichever side tags are visible (top/right/bottom/left).
+       Because the arena is structured, even partial side info can guide the robot
+       toward the home corner.
+    """
+    global LAST_TAG_SIDE, ROTATION_SPEED, TURN_SPEED_RATIO, DISTANCE_THRESHOLD
+
+    # 1) Convert bytes → NumPy array.
     img_array = bytes_to_numpy(img_bytes, camera)
     if img_array is None:
-        print("Failed to convert image bytes to NumPy array.")
+        print("ERROR: Failed to convert image bytes to a NumPy array.")
         return
 
-    # 2) Detect AprilTags in the image
+    # 2) Detect AprilTags in the image.
     OUTPUT_PATH = f"annotated_image_{step}.jpg"
     detected_tags = detect_apriltags(image=img_array, output_path=OUTPUT_PATH)
     if not detected_tags:
-        print("No tags detected; rotating in place to find tags.")
-        # Slowly rotate in place until the next detection
-        left_motor.setVelocity(-ROTATION_SPEED)
-        right_motor.setVelocity(ROTATION_SPEED)
+        # No tags detected; fallback to search/spin in place.
+        if LAST_TAG_SIDE == "left":
+            print("No tags detected; rotating left to search.")
+            left_motor.setVelocity(TURN_SPEED_RATIO * ROTATION_SPEED)
+            right_motor.setVelocity(ROTATION_SPEED)
+        else:
+            print("No tags detected; rotating right to search.")
+            left_motor.setVelocity(ROTATION_SPEED)
+            right_motor.setVelocity(TURN_SPEED_RATIO * ROTATION_SPEED)
         return
 
-    # 3) Estimate the robot pose (x, y, theta) in mm + radians
-    pose = estimate_robot_pose(detected_tags)
-    if pose is None:
-        print("Could not estimate robot pose from detections.")
-        left_motor.setVelocity(0)
-        right_motor.setVelocity(0)
-        return
-    robot_x, robot_y, robot_theta = pose
-    print(f"Robot estimated at x={robot_x:.1f}, y={robot_y:.1f}, θ={math.degrees(robot_theta):.1f}°")
+    # 3) Check for home tags first.
+    home_tags = [tag for tag in detected_tags if tag['id'] in home_ids]
 
-    # 4) Get the home (corner) coordinates from the 2 destination IDs
-    home_x, home_y = get_destination_coordinate(destination_ids)
-    print(f"Home destination is at x={home_x:.1f}, y={home_y:.1f}")
+    # If we found the home tags, we can servo on them directly.
+    if home_tags:
+        print("Home tag(s) detected. Steering directly toward home corner.")
+        tags_to_servo = home_tags
+    else:
+        # 4) Otherwise, we do a fallback approach using side tags.
+        # Determine which side (or sides) we see the most.
+        side_dict = {"top": [], "right": [], "bottom": [], "left": []}
+        for tag in detected_tags:
+            tid = tag['id']
+            if tid in TOP_TAGS:
+                side_dict["top"].append(tag)
+            elif tid in RIGHT_TAGS:
+                side_dict["right"].append(tag)
+            elif tid in BOTTOM_TAGS:
+                side_dict["bottom"].append(tag)
+            elif tid in LEFT_TAGS:
+                side_dict["left"].append(tag)
 
-    # 5) Compute the distance and heading error
-    dx = home_x - robot_x
-    dy = home_y - robot_y
-    distance_to_home = math.hypot(dx, dy)
+        # Pick whichever side has the most tags detected (simple heuristic).
+        best_side = max(side_dict.keys(), key=lambda s: len(side_dict[s]))
+        tags_to_servo = side_dict[best_side]
 
-    print(f"Distance to home = {distance_to_home:.1f} mm")
-    if distance_to_home < DISTANCE_THRESHOLD:
-        # 1) Move backwards for 1 second
-        print(f"Within {DISTANCE_THRESHOLD}mm threshold. Moving backwards...")
-        left_motor.setVelocity(-FORWARD_SPEED)
-        right_motor.setVelocity(-FORWARD_SPEED)
-        start = time.time()
-        while (time.time() - start) < 1.0:  # 1 second backward
-            if robot.step(int(robot.getBasicTimeStep())) == -1:
-                break
+        if not tags_to_servo:
+            # If for some reason all sides are empty (unlikely if we have tags),
+            # fallback to spinning in place.
+            print("No home corner tags or side tags recognized. Searching...")
+            if LAST_TAG_SIDE == "left":
+                left_motor.setVelocity(TURN_SPEED_RATIO * ROTATION_SPEED)
+                right_motor.setVelocity(ROTATION_SPEED)
+            else:
+                left_motor.setVelocity(ROTATION_SPEED)
+                right_motor.setVelocity(TURN_SPEED_RATIO * ROTATION_SPEED)
+            return
+        else:
+            print(f"No home tags visible. Using {best_side.upper()} side tags to navigate.")
 
-        # 2) Rotate away from the home position for 1 second
-        print("Rotating away from home corner...")
-        left_motor.setVelocity(FORWARD_SPEED)
-        right_motor.setVelocity(-FORWARD_SPEED)
-        start = time.time()
-        while (time.time() - start) < 1.0:  # 1 second rotate
-            if robot.step(int(robot.getBasicTimeStep())) == -1:
-                break
+    # 5) (Optional) Check average distance from the tags_to_servo if 'dist' is available.
+    # If it's below threshold, call arrival_routine().
+    # E.g., if all tags in tags_to_servo have "dist" info:
+    if all("dist" in tag for tag in tags_to_servo):
+        avg_distance = sum(tag["dist"] for tag in tags_to_servo) / len(tags_to_servo)
+        print(f"Average distance to corner/side: {avg_distance:.1f} mm")
+        if avg_distance < DISTANCE_THRESHOLD:
+            arrival_routine(left_motor, right_motor, robot)
+            return
 
-        # 3) Switch back to CHASE_BALL mode
-        left_motor.setVelocity(0)
-        right_motor.setVelocity(0)
-        CHASE_BALL = True
-        RETURN_HOME = False
-        print("DESTINATION ARRIVED, switching to CHASE_BALL mode.")
-        return
+    # 6) Visual servo on whichever tags we ended up with (home or side).
+    avg_x = sum(tag['center'][0] for tag in tags_to_servo) / len(tags_to_servo)
+    image_center_x = img_array.shape[1] / 2.0
+    error_x = avg_x - image_center_x
 
-    # Otherwise, compute heading error and drive
-    target_angle = math.atan2(dy, dx)
-    angle_diff = (target_angle - robot_theta + math.pi) % (2*math.pi) - math.pi
+    # Update LAST_TAG_SIDE based on the horizontal error.
+    if error_x < 0:
+        LAST_TAG_SIDE = "left"
+    else:
+        LAST_TAG_SIDE = "right"
 
-    # 6) Turn while driving forward with P-control
-    base_speed = min(FORWARD_SPEED, MAX_MOTOR_SPEED)
-    turn = ANGLE_GAIN * angle_diff
+    # Simple proportional controller on the horizontal error.
+    STEER_GAIN = 0.2  # Tune as needed.
+    turn_correction = STEER_GAIN * error_x
 
-    # Flip sign if needed so positive angle => turn left
-    left_speed = base_speed + turn
-    right_speed = base_speed - turn
-
-    left_speed = max(-MAX_MOTOR_SPEED, min(MAX_MOTOR_SPEED, left_speed))
-    right_speed = max(-MAX_MOTOR_SPEED, min(MAX_MOTOR_SPEED, right_speed))
+    # Drive forward at a constant speed.
+    FORWARD_SPEED = 6.0
+    left_speed = FORWARD_SPEED - turn_correction
+    right_speed = FORWARD_SPEED + turn_correction
 
     left_motor.setVelocity(left_speed)
     right_motor.setVelocity(right_speed)
 
-    print(f"Distance to home = {distance_to_home:.1f} mm, angle diff = {math.degrees(angle_diff):.1f}°")
-    print(f"Setting left={left_speed:.2f}, right={right_speed:.2f}")
+    print(
+        f"Visual Servo: error_x={error_x:.2f}, turn={turn_correction:.2f}, "
+        f"left={left_speed:.2f}, right={right_speed:.2f}"
+    )
+
+
+def return_home(img_bytes, camera, left_motor, right_motor, robot, step, destination_ids=[0, 23]):
+    global CHASE_BALL, RETURN_HOME, DISTANCE_THRESHOLD, FORWARD_SPEED
+    global ROTATION_SPEED, MAX_MOTOR_SPEED, ANGLE_GAIN, LAST_TAG_SIDE, TURN_SPEED_RATIO
+
+    # 1) Convert bytes → NumPy array.
+    img_array = bytes_to_numpy(img_bytes, camera)
+    if img_array is None:
+        print("ERROR: Failed to convert image bytes to a NumPy array.")
+        return
+
+    # 2) Detect AprilTags in the image.
+    OUTPUT_PATH = f"annotated_image_{step}.jpg"
+    detected_tags = detect_apriltags(image=img_array, output_path=OUTPUT_PATH)
+    if not detected_tags:
+        # No tags detected: rotate based on last known tag side.
+        if LAST_TAG_SIDE == "left":
+            print("WARNING: No tags detected; last seen on left. Rotating left to search for tags.")
+            left_motor.setVelocity(TURN_SPEED_RATIO * ROTATION_SPEED)
+            right_motor.setVelocity(ROTATION_SPEED)
+        else:
+            print("WARNING: No tags detected; last seen on right. Rotating right to search for tags.")
+            left_motor.setVelocity(ROTATION_SPEED)
+            right_motor.setVelocity(TURN_SPEED_RATIO * ROTATION_SPEED)
+        return
+
+    # 3) Estimate the robot pose (x, y, theta) in mm and radians.
+    pose = estimate_robot_pose(detected_tags)
+    if pose is None:
+        print("ERROR: Could not estimate robot pose from tag detections.")
+        left_motor.setVelocity(0)
+        right_motor.setVelocity(0)
+        return
+    robot_x, robot_y, robot_theta = pose
+    print(f"Robot position: x = {robot_x:.1f} mm, y = {robot_y:.1f} mm, heading = {math.degrees(robot_theta):.1f}°")
+    
+    # Adjust heading if necessary.
+    robot_theta = (robot_theta + math.pi) % (2 * math.pi)
+    if robot_theta > math.pi:
+        robot_theta -= 2 * math.pi
+    print(f"Robot pose: x={robot_x:.1f} mm, y={robot_y:.1f} mm, heading={math.degrees(robot_theta):.1f}°")
+
+
+    # 4) Get the home (corner) coordinates from destination IDs.
+    home_x, home_y = get_destination_coordinate()
+    print(f"Home destination coordinates: x = {home_x:.1f} mm, y = {home_y:.1f} mm")
+
+    # 5) Compute the distance and heading error.
+    dx = home_x - robot_x
+    dy = home_y - robot_y
+    distance_to_home = math.hypot(dx, dy)
+    print(f"Distance to home: {distance_to_home:.1f} mm")
+    
+    # If within threshold, execute the arrival routine.
+    if distance_to_home < DISTANCE_THRESHOLD:
+        arrival_routine(left_motor, right_motor, robot)
+        return
+
+    # Compute heading error: the difference between desired and current heading.
+    target_angle = math.atan2(dy, dx)
+    angle_diff = (target_angle - robot_theta + math.pi) % (2 * math.pi) - math.pi
+
+    # Determine which side the home position is on relative to the robot's current heading.
+    if angle_diff > 0:
+        LAST_TAG_SIDE = "left"
+        print("TARGET DIRECTION: Home is to the LEFT.")
+    else:
+        LAST_TAG_SIDE = "right"
+        print("TARGET DIRECTION: Home is to the RIGHT.")
+
+    print(f"Heading details: target angle = {math.degrees(target_angle):.1f}°, current heading = {math.degrees(robot_theta):.1f}°, angle difference = {math.degrees(angle_diff):.1f}°.")
+
+    # 6) Decide whether to rotate in place or drive forward with turning.
+    angle_threshold = math.radians(30)  # e.g., 30° threshold for switching behaviors.
+    if abs(angle_diff) > angle_threshold:
+        print("Angle diff is large; rotating in place to face home.")
+        if angle_diff > 0:
+            left_speed = -ROTATION_SPEED
+            right_speed = ROTATION_SPEED
+        else:
+            left_speed = ROTATION_SPEED
+            right_speed = -ROTATION_SPEED
+    else:
+        print("Angle diff is small; driving forward while turning toward home.")
+        base_speed = min(FORWARD_SPEED, MAX_MOTOR_SPEED)
+        turn = ANGLE_GAIN * angle_diff
+        left_speed = base_speed - turn
+        right_speed = base_speed + turn
+        left_speed = max(-MAX_MOTOR_SPEED, min(MAX_MOTOR_SPEED, left_speed))
+        right_speed = max(-MAX_MOTOR_SPEED, min(MAX_MOTOR_SPEED, right_speed))
+
+    left_motor.setVelocity(left_speed)
+    right_motor.setVelocity(right_speed)
+    print(f"Motor commands: left={left_speed:.2f}, right={right_speed:.2f}, angle diff={math.degrees(angle_diff):.1f}°, distance to home={distance_to_home:.1f} mm.")
+
 
 def enhance_image(image):
     """
@@ -317,8 +485,6 @@ def detect_apriltags(image, output_path=None):
     global FX, FY, TAG_SIDE_METERS
     
     # Enhance the image to improve detection accuracy
-    print(f"Image type before enhancement: {type(image)}")
-    print(f"Image writeable before enhancement: {image.flags.writeable}")
     enhanced_gray = enhance_image(image)
 
     # Initialize the AprilTag detector with optimized parameters
@@ -460,9 +626,10 @@ def estimate_robot_pose(detections):
     if robot_positions:
         x_est = sum(p[0] for p in robot_positions) / len(robot_positions)
         y_est = sum(p[1] for p in robot_positions) / len(robot_positions)
-        # For heading, you could do a more sophisticated approach
-        # or just pick the first detection’s yaw as an estimate:
-        theta_est = detections[0]['pose'].get('yaw', 0.0)
+        # Average the yaw values properly over all detections.
+        sum_sin = sum(math.sin(det['pose'].get('yaw', 0.0)) for det in detections)
+        sum_cos = sum(math.cos(det['pose'].get('yaw', 0.0)) for det in detections)
+        theta_est = math.atan2(sum_sin, sum_cos)
         return (x_est, y_est, theta_est)
     else:
         return None
@@ -537,6 +704,8 @@ def main():
                         right_motor.setVelocity(FORWARD_SPEED)
         elif RETURN_HOME:
             if step_count % DETECTION_FRAME_INTERVAL == 0:
+                # return_home_visual_servo(img, camera, left_motor, right_motor, robot,
+                #             step=step_count // DETECTION_FRAME_INTERVAL)
                 return_home(img, camera, left_motor, right_motor, robot,
                             step=step_count // DETECTION_FRAME_INTERVAL, destination_ids=HOME_IDS)
         
