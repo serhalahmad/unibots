@@ -21,17 +21,20 @@ MODEL_PATH = os.path.abspath(relative_path)
 CONFIDENCE_THRESHOLD = 0.15
 DETECTION_FRAME_INTERVAL = 30 # controls how many frames are skipped between apriltag / ball detection is performed
 CAMERA_NAME = "camera"
-DISTANCE_THRESHOLD = 150 # 350.0
-HOME_IDS = [0, 23]
-FORWARD_SPEED = 2.0  # Adjust this value as needed
-ROTATION_SPEED = 1.0
-TURN_SPEED_RATIO = 0.75 # Speed ratio of ROTATION_SPEED - to keep moving towards last april tag position
-MAX_MOTOR_SPEED = 2.28 # WeBots speed limit:= 6.28 rad/s
+DISTANCE_THRESHOLD = 500 # 350.0 # Determinisitc works perfect so: blue zone 350 red zone 500 
+HOME_IDS = [23, 0] # [23, 0]!!!! OR [5, 6] OR [11, 12] OR [17, 18]
+FORWARD_SPEED = 3.0  # Adjust this value as needed
+ROTATION_SPEED = 2.0
+TURN_SPEED_RATIO = 0.7 # Speed ratio of ROTATION_SPEED - to keep moving towards last april tag position
+MAX_MOTOR_SPEED = 3 # WeBots speed limit:= 6.28 rad/s
 ANGLE_GAIN = 3
 TURN_RATIO = 0.7
 COMPETITION_START_TIME = 3 # seconds
 GO_HOME_TIMER = 10 # seconds
 LAST_TAG_SIDE = None
+HOME_TAGS_CENTER_TOLERANCE = 50 # pixels
+IMAGE_WIDTH = 680
+IMAGE_HEIGHT = 480
 
 TOP_TAGS = set(range(0, 6))      # IDs 0..5
 RIGHT_TAGS = set(range(6, 12))   # IDs 6..11
@@ -88,8 +91,9 @@ TAG_POSITIONS = {
     23: (-1000, 850),  # Left edge, 150 mm from top (NW) corner
 }
 
+# SWAPPED (23, 0) to work in april tags directions
 HOME_POSITIONS = {
-    (0, 23): (-1000, 1000),    # NW corner: midpoint of TAG_POSITIONS[0] and TAG_POSITIONS[23]
+    (23, 0): (-1000, 1000),    # NW corner: midpoint of TAG_POSITIONS[0] and TAG_POSITIONS[23]
     (5, 6): (1000, 1000),      # NE corner: midpoint of TAG_POSITIONS[5] and TAG_POSITIONS[6]
     (11, 12): (1000, -1000),   # SE corner: midpoint of TAG_POSITIONS[11] and TAG_POSITIONS[12]
     (17, 18): (-1000, -1000)   # SW corner: midpoint of TAG_POSITIONS[17] and TAG_POSITIONS[18]
@@ -243,6 +247,73 @@ def get_destination_coordinate():
     except KeyError:
         raise ValueError(f"HOME_IDS {HOME_IDS} do not map to a known corner.")
     
+
+def return_home_deterministic(img_bytes, camera, left_motor, right_motor, robot, step, home_ids=HOME_IDS):
+    global LAST_TAG_SIDE, ROTATION_SPEED, TURN_SPEED_RATIO, DISTANCE_THRESHOLD, HOME_TAGS_CENTER_TOLERANCE, IMAGE_WIDTH, RETURN_HOME, CHASE_BALL
+
+    # 1) Convert bytes → NumPy array.
+    img_array = bytes_to_numpy(img_bytes, camera)
+    if img_array is None:
+        print("ERROR: Failed to convert image bytes to a NumPy array.")
+        return
+
+    # 2) Detect AprilTags in the image.
+    OUTPUT_PATH = f"annotated_image_{step}.jpg"
+    detected_tags = detect_apriltags(image=img_array, output_path=OUTPUT_PATH)
+    if not detected_tags:
+        # No tags detected; fallback to search/spin in place.
+        if LAST_TAG_SIDE == "left":
+            print("No tags detected; rotating left to search.")
+            left_motor.setVelocity(TURN_SPEED_RATIO * ROTATION_SPEED)
+            right_motor.setVelocity(ROTATION_SPEED)
+        else:
+            print("No tags detected; rotating right to search.")
+            left_motor.setVelocity(ROTATION_SPEED)
+            right_motor.setVelocity(TURN_SPEED_RATIO * ROTATION_SPEED)
+        return
+
+    home_tags = [tag for tag in detected_tags if tag['id'] in home_ids]
+    for tag in home_tags:
+        if tag['pose']['distance'] < DISTANCE_THRESHOLD:
+            print("Arrived Home!")
+            print("Arrived Home!")
+            print("Arrived Home!")
+            left_motor.setVelocity(0)
+            right_motor.setVelocity(0)
+            RETURN_HOME = False
+            CHASE_BALL = True
+            return
+
+    # 3) Check if any home tag is centered.
+    image_center_x = IMAGE_WIDTH // 2
+    home_tags_in_center = [tag for tag in detected_tags 
+                           if tag['id'] in home_ids and abs(tag['center'][0] - image_center_x) < HOME_TAGS_CENTER_TOLERANCE]
+    if home_tags_in_center:
+        print("Home tag is centered; moving forward.")
+        left_motor.setVelocity(FORWARD_SPEED)
+        right_motor.setVelocity(FORWARD_SPEED)
+        return
+
+    # 4) No centered home tag; use all detected tags to decide turn direction.
+    # Sort all tags by the x-coordinate of their center.
+    detected_tags_sorted = sorted(detected_tags, key=lambda tag: tag['center'][0])
+    mid_index = len(detected_tags_sorted) // 2
+    middle_tag = detected_tags_sorted[mid_index]
+    middle_id = middle_tag['id']
+    
+    # Decide turn direction by comparing the middle tag's id with the two home_ids.
+    if abs(middle_id - home_ids[0]) < abs(middle_id - home_ids[1]):
+        print(f"Middle tag id {middle_id} is closer to {home_ids[0]} (turn right).")
+        LAST_TAG_SIDE = "right"
+        left_motor.setVelocity(ROTATION_SPEED)
+        right_motor.setVelocity(ROTATION_SPEED * TURN_SPEED_RATIO)
+    else:
+        print(f"Middle tag id {middle_id} is closer to {home_ids[1]} (turn left).")
+        LAST_TAG_SIDE = "left"
+        left_motor.setVelocity(ROTATION_SPEED * TURN_SPEED_RATIO)
+        right_motor.setVelocity(ROTATION_SPEED)
+
+
 
 def return_home_visual_servo(img_bytes, camera, left_motor, right_motor, robot, step, home_ids=HOME_IDS):
     """
@@ -704,10 +775,12 @@ def main():
                         right_motor.setVelocity(FORWARD_SPEED)
         elif RETURN_HOME:
             if step_count % DETECTION_FRAME_INTERVAL == 0:
+                return_home_deterministic(img, camera, left_motor, right_motor, robot,
+                             step=step_count // DETECTION_FRAME_INTERVAL)
                 # return_home_visual_servo(img, camera, left_motor, right_motor, robot,
                 #             step=step_count // DETECTION_FRAME_INTERVAL)
-                return_home(img, camera, left_motor, right_motor, robot,
-                            step=step_count // DETECTION_FRAME_INTERVAL, destination_ids=HOME_IDS)
+                # return_home(img, camera, left_motor, right_motor, robot,
+                #             step=step_count // DETECTION_FRAME_INTERVAL, destination_ids=HOME_IDS)
         
             # When the robot has returned home, the return_home function sets:
             #   CHASE_BALL = True and RETURN_HOME = False.

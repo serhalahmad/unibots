@@ -9,12 +9,14 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/project
 WorldInfo {
 }
 Viewpoint {
-  orientation -0.3011708587824442 0.11752265359131789 0.9463004489659192 2.434126799786969
-  position 0.6742052767664888 -0.8795308679067265 1.0993055740546762
+  orientation -0.25211297150023637 0.10276284762922938 0.9622259852802006 2.3940479114866613
+  position 2.164973755034479 -2.0646423924676016 1.9308853511875734
 }
 TexturedBackground {
 }
 TexturedBackgroundLight {
+  luminosity 1.2
+  castShadows FALSE
 }
 RectangleArena {
   floorSize 2 2
@@ -24,13 +26,8 @@ RectangleArena {
   }
   wallThickness 0.05
 }
-PointLight {
-  attenuation 0 0 1
-  intensity 3
-  location 0 0 0.5
-}
 DEF Ball-2 Solid {
-  translation 0.07 -0.54 0.0199474
+  translation -0.13 0.34 0.0199474
   children [
     Shape {
       appearance PBRAppearance {
@@ -48,7 +45,7 @@ DEF Ball-2 Solid {
   }
 }
 DEF Ball-1 Solid {
-  translation 0.163058 0.27112 0.0199474
+  translation -0.330182 0.594862 0.0199474
   rotation 0 0 1 0.9899488552164322
   children [
     Shape {
@@ -69,7 +66,7 @@ DEF Ball-1 Solid {
   }
 }
 DEF Ball-3 Solid {
-  translation 0.0243804 0.00211839 0.0199474
+  translation -0.411809 0.219913 0.0199474
   rotation 0 0 1 -1.5885485306518676
   children [
     Shape {
@@ -90,8 +87,8 @@ DEF Ball-3 Solid {
   }
 }
 E-puck {
-  translation -0.330833 0.066703 -0.000906499
-  rotation -0.0006300057116655911 -0.0007200216704680309 0.9999995423306939 -2.3684053071795863
+  translation -0.409558 -0.0101203 -0.00108069
+  rotation -0.0006300037116673004 -0.0007200216704689381 0.999999542331954 -2.3684053071795863
   controller "my_controller_py"
   camera_fieldOfView 1.5
   camera_width 1920
@@ -848,4 +845,16 @@ DEF Red-Border-SW2 Pose {
       }
     }
   ]
+}
+DirectionalLight {
+  direction -1 -1 0
+}
+DirectionalLight {
+  direction 1 -1 0
+}
+DirectionalLight {
+  direction -1 1 0
+}
+DirectionalLight {
+  direction 1 1 0
 }
