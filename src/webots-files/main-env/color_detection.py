@@ -3,9 +3,9 @@ import numpy as np
 import os
 
 # Parameters
-IMAGE_NAME = 'arena_1.jpeg'
-H_COLOR_THRESHOLD = 0.6 # this parameter specifies the horizental percentage of the image to conside the walls
-
+IMAGE_NAME = 'arena_2.jpeg'
+H_COLOR_THRESHOLD = 0.3 # this parameter specifies the horizental percentage of the image to conside the walls
+ASPECT_RATIO = 1.2 # the width-to-height ratio to consider the color horizontal or vertical
 
 # Define HSV color ranges
 color_ranges = {
@@ -49,10 +49,17 @@ for color, (lower, upper) in color_ranges.items():
         if cv2.contourArea(contour) > 500:  # Ignore small detections
             x, y, w, h = cv2.boundingRect(contour)
 
+            aspect_ratio = w / float(h) # width-to-height ratio
+            # Determine orientation
+            if aspect_ratio > ASPECT_RATIO:  # Wider than tall → Likely aligned with camera direction
+                orientation = "Facing camera"
+            else:  # Taller than wide → Likely facing the camera
+                orientation = "Alighned with camera"
+
             # Check if the bounding box is in the lower 30% of the image
             if y + h >= lower_bound:
                 cv2.rectangle(image, (x, y), (x + w, y + h), (255, 255, 255), 2)
-                cv2.putText(image, color, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                cv2.putText(image, f"{color} ({orientation})", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
 # Draw a horizontal line to indicate the lower 30% region
 cv2.line(image, (0, lower_bound), (width, lower_bound), (0, 255, 255), 2)
