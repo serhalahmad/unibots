@@ -4,8 +4,9 @@ import os
 
 # Parameters
 IMAGE_NAME = 'arena_2.jpeg'
-H_COLOR_THRESHOLD = 0.3 # this parameter specifies the horizental percentage of the image to conside the walls
+H_COLOR_THRESHOLD = 0.6 # this parameter specifies the horizental percentage of the image to conside the walls
 ASPECT_RATIO = 1.2 # the width-to-height ratio to consider the color horizontal or vertical
+LATEST_DIRECTION = "right" # when a wall facing the camera is detected, this is the direction to move. It changes based on the latest aligned wall detection
 
 # Define HSV color ranges
 color_ranges = {
@@ -31,6 +32,7 @@ image = cv2.resize(image, (600, 400))
 # Get image height to define the lower 30% region
 height, width, _ = image.shape
 lower_bound = int(height * (1 - H_COLOR_THRESHOLD))
+center_x = width // 2  # Middle of the image
 
 # Convert image to HSV
 hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
@@ -60,6 +62,18 @@ for color, (lower, upper) in color_ranges.items():
             if y + h >= lower_bound:
                 cv2.rectangle(image, (x, y), (x + w, y + h), (255, 255, 255), 2)
                 cv2.putText(image, f"{color} ({orientation})", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+                # Determine left or right side
+                object_center = x + (w // 2)
+                if orientation == "Alighned with camera":
+                    if object_center < center_x:
+                        latest_direction = "right"
+                        print(f"{color} detected on Left (Aligned) → Move Right")
+                    else:
+                        latest_direction = "left"
+                        print(f"{color} detected on Right (Aligned) → Move Left")
+                elif orientation == "Facing camera":
+                    print(f"{color} detected (Facing Camera) → Move {latest_direction}")
 
 # Draw a horizontal line to indicate the lower 30% region
 cv2.line(image, (0, lower_bound), (width, lower_bound), (0, 255, 255), 2)
