@@ -11,7 +11,9 @@ current_dir = os.path.dirname(__file__)
 # relative_path = os.path.join(current_dir, '..', 'weights', 'real-world-detector.pt')
 # relative_path = os.path.join(current_dir, '..', 'weights', 'new-weights', 'yolos-3.onnx')
 relative_path = os.path.join(current_dir, '..', 'weights', '0-simple.mnn')
+relative_path_inference_output = os.path.join(current_dir, 'object-detection-inference')
 MODEL_PATH = os.path.abspath(relative_path)
+absolute_path_inference_output = os.path.abspath(relative_path_inference_output)
 
 # Load the YOLO model (update the model path as needed)
 model = YOLO(MODEL_PATH, task='detect')
@@ -36,7 +38,8 @@ while True:
     results = model(frame,
                     conf=CONFIDENCE_THRESHOLD,
                     save=COLLECT_INFERENCE_DATA,
-                    project=f"predictions")
+                    project=absolute_path_inference_output,
+                    name=f"inference_{step_count}")
     
     # Process the results (assumes single image inference)
     result = results[0]
