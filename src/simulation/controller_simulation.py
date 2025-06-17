@@ -21,13 +21,6 @@ MODEL_PATH = os.path.abspath(relative_path)
 CONFIDENCE_THRESHOLD = 0.15
 DETECTION_FRAME_INTERVAL = 30 # controls how many frames are skipped between apriltag / ball detection is performed
 CAMERA_NAME = "camera"
-<<<<<<< HEAD
-DISTANCE_THRESHOLD = 50 # 300.0
-HOME_IDS = [23, 0]
-FORWARD_SPEED = 6.0  # Adjust this value as needed
-ROTATION_SPEED = 4.0
-MAX_MOTOR_SPEED = 6.28 # WeBots speed limit:= 6.28 rad/s
-=======
 OBJECT_DETECTION_CLASSES = ["rugby-balls", "ping-pong-ball"]
 DISTANCE_THRESHOLD = 500 # 350.0 # Determinisitc works perfect so: blue zone 350 red zone 500 
 HOME_IDS = [23, 0] # [23, 0]!!!! OR [5, 6] OR [11, 12] OR [17, 18]
@@ -35,7 +28,6 @@ FORWARD_SPEED = 3.0  # Adjust this value as needed
 ROTATION_SPEED = 1.0
 TURN_SPEED_RATIO = 0.7 # Speed ratio of ROTATION_SPEED - to keep moving towards last april tag position
 MAX_MOTOR_SPEED = 3 # WeBots speed limit:= 6.28 rad/s
->>>>>>> 191e0b05361272ba6bb41767bb2cb83b4c5d8f4e
 ANGLE_GAIN = 3
 TURN_RATIO = 0.7
 COMPETITION_START_TIME = 3 # seconds
