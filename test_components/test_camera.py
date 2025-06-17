@@ -19,7 +19,7 @@ try:
         if not ret:
             print("Can't receive frame (stream end?). Exiting ...")
             break
-
+        print("Frame shape:", frame.shape)
         # Construct filename and save frame to disk
         filename = os.path.join(output_dir, f'frame_{frame_counter:05d}.jpg')
         cv2.imwrite(filename, frame)

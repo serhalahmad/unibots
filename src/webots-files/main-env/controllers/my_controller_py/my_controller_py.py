@@ -22,7 +22,7 @@ CONFIDENCE_THRESHOLD = 0.15
 DETECTION_FRAME_INTERVAL = 25 # controls how many frames are skipped between apriltag / ball detection is performed
 CAMERA_NAME = "camera"
 DISTANCE_THRESHOLD = 50 # 300.0
-HOME_IDS = [0, 23]
+HOME_IDS = [23, 0]
 FORWARD_SPEED = 6.0  # Adjust this value as needed
 ROTATION_SPEED = 4.0
 MAX_MOTOR_SPEED = 6.28 # WeBots speed limit:= 6.28 rad/s

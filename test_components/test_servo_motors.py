@@ -9,25 +9,27 @@ class Motor:
 
     def setVelocity(self, left_velocity, right_velocity):
         # Send PWM signal or command to motor driver
-        print(f"{self.name} for left wheels to {left_velocity} and right wheels to {right_velocity}")
-        # Example: "setVelocity 40 75" (left motor 40, right motor 75)
-        command = str(self.name) + " " + str(left_velocity) + " " + str(right_velocity) + '\n'
-        print(command)
+        print(f"{self.name}: setting left wheels to {left_velocity} and right wheels to {right_velocity}")
+        command = f"{self.name} {left_velocity} {right_velocity}\n"
+        print(f"Command sent: {command.strip()}")
         self.ser.write(command.encode())
 
+# Initialize serial connection
 ser = serial.Serial('/dev/ttyACM0', 115200, timeout=1)
-
 wheel_motors = Motor('setVelocity', ser)
 
+# Example initial command
 ser.write("setVelocity 0 0\n".encode())
+# ser.write("setVelocity 0 0\n".encode())
 # time.sleep(2)
+# ser.write("setVelocity 75 75\n".encode())
 
-# wheel_motors.setVelocity(40, 40)
-# time.sleep(5)
-# wheel_motors.setVelocity(40, 0)
-# time.sleep(5)
-# wheel_motors.setVelocity(0, 40)
-# time.sleep(5)
-# wheel_motors.setVelocity(40, 40)
-# time.sleep(5)
-# wheel_motors.setVelocity(0, 0)
+# Continuous loop to read input and send commands
+while True:
+    try:
+        user_input = input("Enter left and right motor speeds separated by a space (e.g. 40 -40): ")
+        # Split the input and convert each value to an integer
+        left_velocity, right_velocity = map(int, user_input.split())
+        wheel_motors.setVelocity(left_velocity, right_velocity)
+    except ValueError:
+        print("Invalid input. Please enter two numbers separated by a space.")
