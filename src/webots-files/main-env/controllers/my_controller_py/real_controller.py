@@ -1,4 +1,3 @@
-from controller import Robot
 import numpy as np
 from PIL import Image
 from ultralytics import YOLO
@@ -8,6 +7,8 @@ import cv2
 from pupil_apriltags import Detector
 import math
 import os
+import serial
+import torch
 
 current_dir = os.path.dirname(__file__)
 relative_path = os.path.join(current_dir, '..', '..', '..', '..', '..', 'weights', 'real-world-detector.pt')
@@ -18,33 +19,22 @@ MODEL_PATH = os.path.abspath(relative_path)
 ################
 
 # MODEL_PATH = r"yolo11s.pt" # Use standard model instead    
-CONFIDENCE_THRESHOLD = 0.15
-DETECTION_FRAME_INTERVAL = 30 # controls how many frames are skipped between apriltag / ball detection is performed
-CAMERA_NAME = "camera"
-<<<<<<< HEAD
-DISTANCE_THRESHOLD = 50 # 300.0
-HOME_IDS = [23, 0]
-FORWARD_SPEED = 6.0  # Adjust this value as needed
-ROTATION_SPEED = 4.0
-MAX_MOTOR_SPEED = 6.28 # WeBots speed limit:= 6.28 rad/s
-=======
-OBJECT_DETECTION_CLASSES = ["rugby-balls", "ping-pong-ball"]
+CONFIDENCE_THRESHOLD = 0.5
+# CAMERA_NAME = "camera"
 DISTANCE_THRESHOLD = 500 # 350.0 # Determinisitc works perfect so: blue zone 350 red zone 500 
-HOME_IDS = [23, 0] # [23, 0]!!!! OR [5, 6] OR [11, 12] OR [17, 18]
-FORWARD_SPEED = 3.0  # Adjust this value as needed
-ROTATION_SPEED = 1.0
+# HOME_IDS = [23, 0]
+HOME_IDS = [11, 12]
+FORWARD_SPEED = 50 # 75
+ROTATION_SPEED = 35 # 50 # min: 50 (*0.7 = 35 (real minimum))
 TURN_SPEED_RATIO = 0.7 # Speed ratio of ROTATION_SPEED - to keep moving towards last april tag position
-MAX_MOTOR_SPEED = 3 # WeBots speed limit:= 6.28 rad/s
->>>>>>> 191e0b05361272ba6bb41767bb2cb83b4c5d8f4e
-ANGLE_GAIN = 3
-TURN_RATIO = 0.7
+MAX_MOTOR_SPEED = 150 # Real max speed: 150 | WeBots speed limit:= 6.28 rad/s
+ANGLE_GAIN = 12 # simulation is 3 / real: 3-20 *(left 48, right 102)
+TURN_RATIO = 0.7 # 0.7
 COMPETITION_START_TIME = 3 # seconds
-GO_HOME_TIMER = 60 # seconds
+GO_HOME_TIMER = 120 # seconds
 LAST_TAG_SIDE = None
 HOME_TAGS_CENTER_TOLERANCE = 50 # pixels
-# Original working verison: 1920x1080 | Old: 680x480 | New: 640x640
-IMAGE_WIDTH = 640
-IMAGE_HEIGHT = 640
+STEER_GAIN = 0.2 # visual return_home() function
 
 TOP_TAGS = set(range(0, 6))      # IDs 0..5
 RIGHT_TAGS = set(range(6, 12))   # IDs 6..11
@@ -52,6 +42,9 @@ BOTTOM_TAGS = set(range(12, 18)) # IDs 12..17
 LEFT_TAGS = set(range(18, 24))   # IDs 18..23
 
 ### CAMERA PARAMETERS ###
+REMOVE_CAM_BUFFER = 10 # frames to be deleted in the camera buffer, before taking new img
+IMAGE_WIDTH = 640
+IMAGE_HEIGHT = 480
 FX = 1600 # focal length along x-axis
 FY = 1600 # focal length along y-axis
 TAG_SIDE_METERS = 0.1 # example: 10cm wide tags
@@ -62,7 +55,7 @@ CHASE_BALL = True
 RETURN_HOME = False
 
 # INDEPENDENT STATES
-COLLECT_DATA = False # save frames to disk, to create training data
+COLLECT_DATA = True # save frames to disk, to create training data
 COLLECT_INFERENCE_DATA = True # save inference data to disk, to check out inference results
 
 # Weird coordinates, because ESU is NOT SUPPORTED in Webots!!!
@@ -121,29 +114,11 @@ def load_model(model_pth=MODEL_PATH):
     except Exception as e:
         print(f"Error loading YOLOv11 model: {e}")
         sys.exit(1)
+    model.eval()
     return model
 
 
-def init_environment(robot):
-    ''' Initialize the robot variables '''
-    timestep = int(robot.getBasicTimeStep())
-
-    # Initialize the left and right motors
-    left_motor = robot.getDevice("left wheel motor")
-    right_motor = robot.getDevice("right wheel motor")
-
-    # Change position to inf -> to set velocity control mode
-    left_motor.setPosition(float("inf"))
-    right_motor.setPosition(float("inf"))
-
-    # Initialize the camera
-    camera = robot.getDevice(CAMERA_NAME)
-    camera.enable(timestep)
-    
-    return timestep, camera, left_motor, right_motor
-
-
-def bytes_to_numpy(img_bytes, camera):
+def bytes_to_numpy(img_bytes):
     """
     Converts image bytes from the camera to a writeable NumPy array.
 
@@ -154,10 +129,10 @@ def bytes_to_numpy(img_bytes, camera):
     Returns:
         numpy.ndarray or None: RGB image as a NumPy array or None if conversion fails.
     """
-    global IMAGE_HEIGHT, IMAGE_WIDTH
+    global IMAGE_WIDTH, IMAGE_HEIGHT
     try:
         # Convert the raw image data to a NumPy array
-        img_array = np.frombuffer(img_bytes, dtype=np.uint8).reshape((IMAGE_HEIGHT, IMAGE_WIDTH, 4))
+        img_array = np.frombuffer(img_bytes, dtype=np.uint8).reshape((IMAGE_HEIGHT, IMAGE_WIDTH, 3))
         # Convert RGBA to RGB by removing the alpha channel and make a copy to ensure writeability
         img_rgb = img_array[:, :, :3].copy()
         return img_rgb
@@ -166,12 +141,12 @@ def bytes_to_numpy(img_bytes, camera):
         return None
 
 
-def ball_detection(img, camera, model):
-    global COLLECT_INFERENCE_DATA, CONFIDENCE_THRESHOLD, IMAGE_WIDTH, IMAGE_HEIGHT, OBJECT_DETECTION_CLASSES
-    detections = []  # List to store info for each detected ball
+def ball_detection(img, model, step_count):
+    global COLLECT_INFERENCE_DATA, CONFIDENCE_THRESHOLD, IMAGE_WIDTH, IMAGE_HEIGHT
+    x_center_int = None
     try:
         # Convert the raw image data to a NumPy array
-        img_array = np.frombuffer(img, dtype=np.uint8).reshape((IMAGE_HEIGHT, IMAGE_WIDTH, 4))
+        img_array = np.frombuffer(img, dtype=np.uint8).reshape((IMAGE_HEIGHT, IMAGE_WIDTH, 3))
 
         # Convert RGBA to RGB by removing the alpha channel
         img_rgb = img_array[:, :, :3]
@@ -182,49 +157,31 @@ def ball_detection(img, camera, model):
         print("Model inference starting...")
 
         # Run the YOLOv11 model on the image
-        results = model(image_np, conf=CONFIDENCE_THRESHOLD, save=COLLECT_INFERENCE_DATA)
-
-        # Process and print detected objects
-        result = results[0]  # Since there's only one image
-        boxes = result.boxes  # Boxes object for bounding box outputs
-
-        # Define your class names (must be in the same order as in your model training)
+        with torch.no_grad():
+            results = model(image_np, conf=CONFIDENCE_THRESHOLD, save=COLLECT_INFERENCE_DATA, )
         
-
+        # Process and print detected objects
+        result = results[0] # Since there's only one image
+        boxes = result.boxes # Boxes object for bounding box outputs
         if boxes:
             for box in boxes:
-                # Extract bounding box coordinates (x1, y1, x2, y2)
+                # Extract the bounding box coordinates (x1, y1, x2, y2)
                 x1, y1, x2, y2 = box.xyxy[0]
+                print(box.xyxy)
                 # Calculate the center x position
                 x_center = (x1 + x2) / 2
+
+                # Convert to integer
                 x_center_int = int(x_center.item())
-
-                # Extract class index (assuming box.cls is available) and confidence
-                class_index = int(box.cls.item())
-                confidence = box.conf.item() if hasattr(box, "conf") else 0.0
-                detected_class = OBJECT_DETECTION_CLASSES[class_index] if class_index < len(OBJECT_DETECTION_CLASSES) else "Unknown"
-
-                # Print information about this detection
-                print(f"Detected {detected_class} with confidence {confidence:.2f} at center x: {x_center_int}")
-                print(f"Bounding box: ({x1:.2f}, {y1:.2f}, {x2:.2f}, {y2:.2f})")
-
-                # Append detection info to the list
-                detections.append({
-                    "class": detected_class,
-                    "confidence": confidence,
-                    "center_x": x_center_int,
-                    "bbox": (float(x1), float(y1), float(x2), float(y2))
-                })
         else:
-            print("No balls detected in the image.")
+            print("Image 0: []")
 
     except Exception as e:
         print(f"Error during image processing or detection: {e}")
-    return detections
+    return x_center_int
 
 
-
-def arrival_routine(left_motor, right_motor, robot):
+def arrival_routine(wheel_motors):
     """
     Handles the arrival routine when the robot is close enough to home.
     Backs up for 1 second, rotates away from home for 1 second,
@@ -235,25 +192,16 @@ def arrival_routine(left_motor, right_motor, robot):
     print(f"Within threshold of {DISTANCE_THRESHOLD} mm. Initiating arrival routine: backing up and rotating away.")
 
     # Back up for 1 second.
-    left_motor.setVelocity(-FORWARD_SPEED)
-    right_motor.setVelocity(-FORWARD_SPEED)
-    start = time.time()
-    while (time.time() - start) < 1.0:
-        if robot.step(int(robot.getBasicTimeStep())) == -1:
-            break
+    wheel_motors.setVelocity(-FORWARD_SPEED, -FORWARD_SPEED)
+    time.sleep(1.0)  # Back up for 1 second
 
     # Rotate away from home for 1 second.
     print("Rotating away from home position...")
-    left_motor.setVelocity(FORWARD_SPEED)
-    right_motor.setVelocity(-FORWARD_SPEED)
-    start = time.time()
-    while (time.time() - start) < 1.0:
-        if robot.step(int(robot.getBasicTimeStep())) == -1:
-            break
+    wheel_motors.setVelocity(FORWARD_SPEED, -FORWARD_SPEED)
+    time.sleep(1.0)  # Rotate for 1 second
 
     # Stop motors and switch modes.
-    left_motor.setVelocity(0)
-    right_motor.setVelocity(0)
+    wheel_motors.setVelocity(0, 0)
     CHASE_BALL = True
     RETURN_HOME = False
     print("Destination reached. Switching to CHASE_BALL mode.")
@@ -271,11 +219,11 @@ def get_destination_coordinate():
         raise ValueError(f"HOME_IDS {HOME_IDS} do not map to a known corner.")
     
 
-def return_home_deterministic(img_bytes, camera, left_motor, right_motor, robot, step, home_ids=HOME_IDS):
-    global LAST_TAG_SIDE, ROTATION_SPEED, TURN_SPEED_RATIO, DISTANCE_THRESHOLD, HOME_TAGS_CENTER_TOLERANCE, IMAGE_WIDTH, RETURN_HOME, CHASE_BALL
+def return_home_deterministic(img_bytes, camera, wheel_motors, step):
+    global LAST_TAG_SIDE, ROTATION_SPEED, TURN_SPEED_RATIO, DISTANCE_THRESHOLD, HOME_TAGS_CENTER_TOLERANCE, IMAGE_WIDTH, RETURN_HOME, CHASE_BALL, HOME_IDS
 
     # 1) Convert bytes → NumPy array.
-    img_array = bytes_to_numpy(img_bytes, camera)
+    img_array = bytes_to_numpy(img_bytes)
     if img_array is None:
         print("ERROR: Failed to convert image bytes to a NumPy array.")
         return
@@ -287,22 +235,19 @@ def return_home_deterministic(img_bytes, camera, left_motor, right_motor, robot,
         # No tags detected; fallback to search/spin in place.
         if LAST_TAG_SIDE == "left":
             print("No tags detected; rotating left to search.")
-            left_motor.setVelocity(TURN_SPEED_RATIO * ROTATION_SPEED)
-            right_motor.setVelocity(ROTATION_SPEED)
+            wheel_motors.setVelocity(TURN_SPEED_RATIO * ROTATION_SPEED, ROTATION_SPEED)
         else:
             print("No tags detected; rotating right to search.")
-            left_motor.setVelocity(ROTATION_SPEED)
-            right_motor.setVelocity(TURN_SPEED_RATIO * ROTATION_SPEED)
+            wheel_motors.setVelocity(ROTATION_SPEED, TURN_SPEED_RATIO * ROTATION_SPEED)
         return
 
-    home_tags = [tag for tag in detected_tags if tag['id'] in home_ids]
+    home_tags = [tag for tag in detected_tags if tag['id'] in HOME_IDS]
     for tag in home_tags:
         if tag['pose']['distance'] < DISTANCE_THRESHOLD:
             print("Arrived Home!")
             print("Arrived Home!")
             print("Arrived Home!")
-            left_motor.setVelocity(0)
-            right_motor.setVelocity(0)
+            wheel_motors.setVelocity(0, 0)
             RETURN_HOME = False
             CHASE_BALL = True
             return
@@ -310,11 +255,10 @@ def return_home_deterministic(img_bytes, camera, left_motor, right_motor, robot,
     # 3) Check if any home tag is centered.
     image_center_x = IMAGE_WIDTH // 2
     home_tags_in_center = [tag for tag in detected_tags 
-                           if tag['id'] in home_ids and abs(tag['center'][0] - image_center_x) < HOME_TAGS_CENTER_TOLERANCE]
+                           if tag['id'] in HOME_IDS and abs(tag['center'][0] - image_center_x) < HOME_TAGS_CENTER_TOLERANCE]
     if home_tags_in_center:
         print("Home tag is centered; moving forward.")
-        left_motor.setVelocity(FORWARD_SPEED)
-        right_motor.setVelocity(FORWARD_SPEED)
+        wheel_motors.setVelocity(FORWARD_SPEED, FORWARD_SPEED)
         return
 
     # 4) No centered home tag; use all detected tags to decide turn direction.
@@ -325,20 +269,18 @@ def return_home_deterministic(img_bytes, camera, left_motor, right_motor, robot,
     middle_id = middle_tag['id']
     
     # Decide turn direction by comparing the middle tag's id with the two home_ids.
-    if abs(middle_id - home_ids[0]) < abs(middle_id - home_ids[1]):
-        print(f"Middle tag id {middle_id} is closer to {home_ids[0]} (turn right).")
+    if abs(middle_id - HOME_IDS[0]) < abs(middle_id - HOME_IDS[1]):
+        print(f"Middle tag id {middle_id} is closer to {HOME_IDS[0]} (turn right).")
         LAST_TAG_SIDE = "right"
-        left_motor.setVelocity(ROTATION_SPEED)
-        right_motor.setVelocity(ROTATION_SPEED * TURN_SPEED_RATIO)
+        wheel_motors.setVelocity(ROTATION_SPEED, ROTATION_SPEED * TURN_SPEED_RATIO)
     else:
-        print(f"Middle tag id {middle_id} is closer to {home_ids[1]} (turn left).")
+        print(f"Middle tag id {middle_id} is closer to {HOME_IDS[1]} (turn left).")
         LAST_TAG_SIDE = "left"
-        left_motor.setVelocity(ROTATION_SPEED * TURN_SPEED_RATIO)
-        right_motor.setVelocity(ROTATION_SPEED)
+        wheel_motors.setVelocity(ROTATION_SPEED * TURN_SPEED_RATIO, ROTATION_SPEED)
 
 
 
-def return_home_visual_servo(img_bytes, camera, left_motor, right_motor, robot, step, home_ids=HOME_IDS):
+def return_home_visual_servo(img_bytes, camera, wheel_motors, step):
     """
     Visual-servo approach to drive home without relying solely on detecting the home corner tags.
     1) If home tag(s) are visible, servo on them directly.
@@ -346,7 +288,7 @@ def return_home_visual_servo(img_bytes, camera, left_motor, right_motor, robot, 
        Because the arena is structured, even partial side info can guide the robot
        toward the home corner.
     """
-    global LAST_TAG_SIDE, ROTATION_SPEED, TURN_SPEED_RATIO, DISTANCE_THRESHOLD
+    global LAST_TAG_SIDE, ROTATION_SPEED, TURN_SPEED_RATIO, DISTANCE_THRESHOLD, HOME_IDS, FORWARD_SPEED, STEER_GAIN
 
     # 1) Convert bytes → NumPy array.
     img_array = bytes_to_numpy(img_bytes, camera)
@@ -361,16 +303,14 @@ def return_home_visual_servo(img_bytes, camera, left_motor, right_motor, robot, 
         # No tags detected; fallback to search/spin in place.
         if LAST_TAG_SIDE == "left":
             print("No tags detected; rotating left to search.")
-            left_motor.setVelocity(TURN_SPEED_RATIO * ROTATION_SPEED)
-            right_motor.setVelocity(ROTATION_SPEED)
+            wheel_motors.setVelocity(TURN_SPEED_RATIO * ROTATION_SPEED, ROTATION_SPEED)
         else:
             print("No tags detected; rotating right to search.")
-            left_motor.setVelocity(ROTATION_SPEED)
-            right_motor.setVelocity(TURN_SPEED_RATIO * ROTATION_SPEED)
+            ROTATION_SPEED.setVelocity(ROTATION_SPEED, TURN_SPEED_RATIO * ROTATION_SPEED)
         return
 
     # 3) Check for home tags first.
-    home_tags = [tag for tag in detected_tags if tag['id'] in home_ids]
+    home_tags = [tag for tag in detected_tags if tag['id'] in HOME_IDS]
 
     # If we found the home tags, we can servo on them directly.
     if home_tags:
@@ -400,11 +340,9 @@ def return_home_visual_servo(img_bytes, camera, left_motor, right_motor, robot, 
             # fallback to spinning in place.
             print("No home corner tags or side tags recognized. Searching...")
             if LAST_TAG_SIDE == "left":
-                left_motor.setVelocity(TURN_SPEED_RATIO * ROTATION_SPEED)
-                right_motor.setVelocity(ROTATION_SPEED)
+                wheel_motors.setVelocity(TURN_SPEED_RATIO * ROTATION_SPEED, ROTATION_SPEED)
             else:
-                left_motor.setVelocity(ROTATION_SPEED)
-                right_motor.setVelocity(TURN_SPEED_RATIO * ROTATION_SPEED)
+                wheel_motors.setVelocity(ROTATION_SPEED, TURN_SPEED_RATIO * ROTATION_SPEED)
             return
         else:
             print(f"No home tags visible. Using {best_side.upper()} side tags to navigate.")
@@ -416,7 +354,7 @@ def return_home_visual_servo(img_bytes, camera, left_motor, right_motor, robot, 
         avg_distance = sum(tag["dist"] for tag in tags_to_servo) / len(tags_to_servo)
         print(f"Average distance to corner/side: {avg_distance:.1f} mm")
         if avg_distance < DISTANCE_THRESHOLD:
-            arrival_routine(left_motor, right_motor, robot)
+            arrival_routine(wheel_motors)
             return
 
     # 6) Visual servo on whichever tags we ended up with (home or side).
@@ -431,116 +369,94 @@ def return_home_visual_servo(img_bytes, camera, left_motor, right_motor, robot, 
         LAST_TAG_SIDE = "right"
 
     # Simple proportional controller on the horizontal error.
-    STEER_GAIN = 0.2  # Tune as needed.
     turn_correction = STEER_GAIN * error_x
 
-    # Drive forward at a constant speed.
-    FORWARD_SPEED = 6.0
     left_speed = FORWARD_SPEED - turn_correction
     right_speed = FORWARD_SPEED + turn_correction
 
-    left_motor.setVelocity(left_speed)
-    right_motor.setVelocity(right_speed)
+    wheel_motors.setVelocity(left_speed, right_speed)
 
     print(
         f"Visual Servo: error_x={error_x:.2f}, turn={turn_correction:.2f}, "
         f"left={left_speed:.2f}, right={right_speed:.2f}"
     )
 
+def return_home(img_bytes, wheel_motors, step, destination_ids=[0, 23]):
+    global CHASE_BALL, RETURN_HOME, DISTANCE_THRESHOLD, FORWARD_SPEED, ROTATION_SPEED, MAX_MOTOR_SPEED, ANGLE_GAIN
 
-def return_home(img_bytes, camera, left_motor, right_motor, robot, step, destination_ids=[0, 23]):
-    global CHASE_BALL, RETURN_HOME, DISTANCE_THRESHOLD, FORWARD_SPEED
-    global ROTATION_SPEED, MAX_MOTOR_SPEED, ANGLE_GAIN, LAST_TAG_SIDE, TURN_SPEED_RATIO
-
-    # 1) Convert bytes → NumPy array.
-    img_array = bytes_to_numpy(img_bytes, camera)
+    # 1) Convert bytes -> NumPy array
+    img_array = bytes_to_numpy(img_bytes)
     if img_array is None:
-        print("ERROR: Failed to convert image bytes to a NumPy array.")
+        print("Failed to convert image bytes to NumPy array.")
         return
 
-    # 2) Detect AprilTags in the image.
+    # 2) Detect AprilTags in the image
     OUTPUT_PATH = f"annotated_image_{step}.jpg"
     detected_tags = detect_apriltags(image=img_array, output_path=OUTPUT_PATH)
     if not detected_tags:
-        # No tags detected: rotate based on last known tag side.
-        if LAST_TAG_SIDE == "left":
-            print("WARNING: No tags detected; last seen on left. Rotating left to search for tags.")
-            left_motor.setVelocity(TURN_SPEED_RATIO * ROTATION_SPEED)
-            right_motor.setVelocity(ROTATION_SPEED)
-        else:
-            print("WARNING: No tags detected; last seen on right. Rotating right to search for tags.")
-            left_motor.setVelocity(ROTATION_SPEED)
-            right_motor.setVelocity(TURN_SPEED_RATIO * ROTATION_SPEED)
+        print("No tags detected; rotating in place to find tags.")
+        # Slowly rotate in place until the next detection
+        wheel_motors.setVelocity(-ROTATION_SPEED, ROTATION_SPEED)
         return
 
-    # 3) Estimate the robot pose (x, y, theta) in mm and radians.
+    # 3) Estimate the robot pose (x, y, theta) in mm and radians
     pose = estimate_robot_pose(detected_tags)
     if pose is None:
-        print("ERROR: Could not estimate robot pose from tag detections.")
-        left_motor.setVelocity(0)
-        right_motor.setVelocity(0)
+        print("Could not estimate robot pose from detections.")
+        wheel_motors.setVelocity(-ROTATION_SPEED, ROTATION_SPEED)
         return
     robot_x, robot_y, robot_theta = pose
-    print(f"Robot position: x = {robot_x:.1f} mm, y = {robot_y:.1f} mm, heading = {math.degrees(robot_theta):.1f}°")
-    
-    # Adjust heading if necessary.
-    robot_theta = (robot_theta + math.pi) % (2 * math.pi)
-    if robot_theta > math.pi:
-        robot_theta -= 2 * math.pi
-    print(f"Robot pose: x={robot_x:.1f} mm, y={robot_y:.1f} mm, heading={math.degrees(robot_theta):.1f}°")
+    print(f"Robot estimated at x={robot_x:.1f}, y={robot_y:.1f}, θ={math.degrees(robot_theta):.1f}°")
 
+    # 4) Get the home (corner) coordinates from the 2 destination IDs
+    home_x, home_y = get_destination_coordinate(destination_ids)
+    print(f"Home destination is at x={home_x:.1f}, y={home_y:.1f}")
 
-    # 4) Get the home (corner) coordinates from destination IDs.
-    home_x, home_y = get_destination_coordinate()
-    print(f"Home destination coordinates: x = {home_x:.1f} mm, y = {home_y:.1f} mm")
-
-    # 5) Compute the distance and heading error.
+    # 5) Compute the distance and heading error
     dx = home_x - robot_x
     dy = home_y - robot_y
     distance_to_home = math.hypot(dx, dy)
-    print(f"Distance to home: {distance_to_home:.1f} mm")
-    
-    # If within threshold, execute the arrival routine.
+
+    print(f"Distance to home = {distance_to_home:.1f} mm")
     if distance_to_home < DISTANCE_THRESHOLD:
-        arrival_routine(left_motor, right_motor, robot)
+        # 1) Move backwards for 1 second
+        print(f"Within {DISTANCE_THRESHOLD}mm threshold. Moving backwards...")
+        wheel_motors.setVelocity(-FORWARD_SPEED, -FORWARD_SPEED)
+        time.sleep(1.0)
+
+        # 2) Rotate away from the home position for 1 second
+        print("Rotating away from home corner...")
+        wheel_motors.setVelocity(ROTATION_SPEED, -ROTATION_SPEED)
+        start = time.time()
+        time.sleep(1.0)
+
+        # 3) Switch back to CHASE_BALL mode
+        print("Moving forward to chase balls...")
+        wheel_motors.setVelocity(FORWARD_SPEED, FORWARD_SPEED)
+        CHASE_BALL = True
+        RETURN_HOME = False
+        print("DESTINATION ARRIVED, switching to CHASE_BALL mode.")
         return
 
-    # Compute heading error: the difference between desired and current heading.
+    # Otherwise, compute heading error and drive
     target_angle = math.atan2(dy, dx)
-    angle_diff = (target_angle - robot_theta + math.pi) % (2 * math.pi) - math.pi
+    angle_diff = (target_angle - robot_theta + math.pi) % (2*math.pi) - math.pi
 
-    # Determine which side the home position is on relative to the robot's current heading.
-    if angle_diff > 0:
-        LAST_TAG_SIDE = "left"
-        print("TARGET DIRECTION: Home is to the LEFT.")
-    else:
-        LAST_TAG_SIDE = "right"
-        print("TARGET DIRECTION: Home is to the RIGHT.")
+    # 6) Turn while driving forward with P-control
+    base_speed = min(FORWARD_SPEED, MAX_MOTOR_SPEED)
+    turn = ANGLE_GAIN * angle_diff
 
-    print(f"Heading details: target angle = {math.degrees(target_angle):.1f}°, current heading = {math.degrees(robot_theta):.1f}°, angle difference = {math.degrees(angle_diff):.1f}°.")
+    # Flip sign if needed so positive angle => turn left
+    left_speed = base_speed + turn
+    right_speed = base_speed - turn
 
-    # 6) Decide whether to rotate in place or drive forward with turning.
-    angle_threshold = math.radians(30)  # e.g., 30° threshold for switching behaviors.
-    if abs(angle_diff) > angle_threshold:
-        print("Angle diff is large; rotating in place to face home.")
-        if angle_diff > 0:
-            left_speed = -ROTATION_SPEED
-            right_speed = ROTATION_SPEED
-        else:
-            left_speed = ROTATION_SPEED
-            right_speed = -ROTATION_SPEED
-    else:
-        print("Angle diff is small; driving forward while turning toward home.")
-        base_speed = min(FORWARD_SPEED, MAX_MOTOR_SPEED)
-        turn = ANGLE_GAIN * angle_diff
-        left_speed = base_speed - turn
-        right_speed = base_speed + turn
-        left_speed = max(-MAX_MOTOR_SPEED, min(MAX_MOTOR_SPEED, left_speed))
-        right_speed = max(-MAX_MOTOR_SPEED, min(MAX_MOTOR_SPEED, right_speed))
+    left_speed = max(-MAX_MOTOR_SPEED, min(MAX_MOTOR_SPEED, left_speed))
+    right_speed = max(-MAX_MOTOR_SPEED, min(MAX_MOTOR_SPEED, right_speed))
 
-    left_motor.setVelocity(left_speed)
-    right_motor.setVelocity(right_speed)
-    print(f"Motor commands: left={left_speed:.2f}, right={right_speed:.2f}, angle diff={math.degrees(angle_diff):.1f}°, distance to home={distance_to_home:.1f} mm.")
+    wheel_motors.setVelocity(left_speed, right_speed)
+
+    print(f"Distance to home = {distance_to_home:.1f} mm, angle diff = {math.degrees(angle_diff):.1f}°")
+    print(f"Setting left={left_speed:.2f}, right={right_speed:.2f}")
 
 
 def enhance_image(image):
@@ -564,6 +480,7 @@ def enhance_image(image):
     
     return gray_blur
 
+
 def detect_apriltags(image, output_path=None):
     """
     Detects all AprilTags in the given image with enhanced accuracy.
@@ -576,9 +493,11 @@ def detect_apriltags(image, output_path=None):
     Returns:
         list of dict: List containing detected tags with their IDs and center positions, ordered by x-coordinate.
     """
-    global FX, FY, TAG_SIDE_METERS
+    global FX, FY, TAG_SIDE_METERS, COLLECT_INFERENCE_DATA
     
     # Enhance the image to improve detection accuracy
+    print(f"Image type before enhancement: {type(image)}")
+    print(f"Image writeable before enhancement: {image.flags.writeable}")
     enhanced_gray = enhance_image(image)
 
     # Initialize the AprilTag detector with optimized parameters
@@ -653,10 +572,7 @@ def detect_apriltags(image, output_path=None):
             'pose': pose_dict
         })
 
-        # ----------------------------
-        # Drawing / annotation 
-        # (unchanged from your version)
-        # ----------------------------
+        # Performance increasement: if COLLECT_INFERENCE_DATA:
         if not image.flags.writeable:
             image = image.copy()
         corners_int = np.int32(corners)
@@ -669,7 +585,7 @@ def detect_apriltags(image, output_path=None):
     if len(tags) == 0:
         print("No AprilTags detected in the image.")
 
-    if output_path:
+    if output_path and COLLECT_INFERENCE_DATA:
         cv2.imwrite(output_path, image)
         print(f"\nAnnotated image saved to '{output_path}'.")
 
@@ -729,101 +645,160 @@ def estimate_robot_pose(detections):
         return None
 
 
+class Motor:
+    def __init__(self, name, ser):
+        self.name = name
+        self.ser = ser
+        # Initialize motor hardware here
+
+    def setVelocity(self, left_velocity, right_velocity):
+        # Send PWM signal or command to motor driver
+        print(f"{self.name} for left wheels to {left_velocity} and right wheels to {right_velocity}")
+        # Example: "setVelocity 40 75" (left motor 40, right motor 75)
+        command = str(self.name) + " " + str(left_velocity) + " " + str(right_velocity) + '\n'
+        print(command)
+        self.ser.write(command.encode())
+
+
+def init_real_environment(ser):
+    global IMAGE_WIDTH, IMAGE_HEIGHT
+    # Initialize the camera using OpenCV
+    cap = cv2.VideoCapture(0)  # Open the default camera (change index if needed)
+    if not cap.isOpened():
+        raise Exception("Could not open video device")
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, IMAGE_WIDTH)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, IMAGE_HEIGHT)
+
+    # Create motor objects
+    wheel_motors = Motor('setVelocity', ser)
+
+    return cap, wheel_motors
+
+
+def cleanup(cap):
+    cap.release()
+    cv2.destroyAllWindows()
+    
+
+def get_image(cap, remove_buffer):
+    # Flush the buffer by grabbing a few frames
+    for _ in range(remove_buffer):
+        cap.grab()
+    ret, frame = cap.read()
+    if not ret:
+        print("Warning: Failed to capture image")
+        return None
+    return frame
+
+
+def save_image(frame, step_count):
+    # Define the folder path
+    folder = "main_loop_frames"
+    
+    # Create the folder if it doesn't exist
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+    
+    # Define the file name and path
+    filename = f"{folder}/img_{step_count}.png"
+    
+    # Save the image
+    cv2.imwrite(filename, frame)
+    print(f"Image saved as {filename}")
+
+def convert_model_to_torchtrace(model, input_example):
+    traced_model = torch.jit.trace(model, input_example)
+    return traced_model
+
+def convert_model_to_torchscript(model):
+    scripted_model = torch.jit.script(model)
+    return scripted_model
+
 def main():
-    global CHASE_BALL, RETURN_HOME, FORWARD_SPEED, ROTATION_SPEED, TURN_RATIO, COMPETITION, COLLECT_DATA, GO_HOME_TIMER, IMAGE_WIDTH, IMAGE_HEIGHT, DETECTION_FRAME_INTERVAL, MODEL_PATH, CAMERA_NAME, OBJECT_DETECTION_CLASSES, COMPETITION_START_TIME, HOME_IDS, TAG_POSITIONS, HOME_POSITIONS
-    model = load_model(MODEL_PATH)
-    if COMPETITION:
-        print(f"Competition mode enabled - waiting for {COMPETITION_START_TIME} seconds.")
-    
-    robot = Robot()
-    timestep, camera, left_motor, right_motor = init_environment(robot)
-    print(f"Camera resolution: {IMAGE_WIDTH}x{IMAGE_HEIGHT}")
-    step_count = 0
-    prev_x_positions = []
-
-    if COMPETITION:
-        time.sleep(COMPETITION_START_TIME)
-        print(f"{COMPETITION_START_TIME} seconds have passed. Starting the competition.")
-
-    # Initialize a timer for BALL_CHASE mode
-    chase_start_time = time.time()
-    # Keep track of the previous mode to detect mode transitions
-    previous_mode = "CHASE_BALL"
-    
-    while robot.step(timestep) != -1:
-        step_count += 1
-
-        # Capture the image from the camera
-        img = camera.getImage()
+    try:
+        # Initialise global variables
+        global CHASE_BALL, RETURN_HOME, FORWARD_SPEED, ROTATION_SPEED, TURN_RATIO, COMPETITION, COLLECT_DATA, GO_HOME_TIMER, IMAGE_WIDTH, IMAGE_HEIGHT, REMOVE_CAM_BUFFER
+        # Initialise local variables
+        step_count = 0
+        prev_x_positions = []
+        print("Starting robot...")
         
-        if COLLECT_DATA:
-            pil_img = Image.frombytes('RGB', (IMAGE_WIDTH, IMAGE_HEIGHT), img)
-            filename = f"img_{step_count}.png"
-            pil_img.save(filename)
+        # Load object detection model
+        model = load_model(MODEL_PATH)
+        print("1) Object detection model loaded successfully.")
         
-        # Check if 15 seconds have elapsed in BALL_CHASE mode.
-        if CHASE_BALL and (time.time() - chase_start_time >= GO_HOME_TIMER):
-            CHASE_BALL = False
-            RETURN_HOME = True
-            print(f"{GO_HOME_TIMER} seconds elapsed in BALL_CHASE mode. Switching to RETURN_HOME mode.")
+        ser = serial.Serial('/dev/ttyACM0', 115200, timeout=1)
+        print("2) Serial initialized successfully!")
         
-        if CHASE_BALL:
-            x_positions = []
-
-            if img:
-                # Perform ball detection at defined intervals
-                if step_count % DETECTION_FRAME_INTERVAL == 0:
-                    detections = ball_detection(img, camera, model)
-                    x_center_int = None
-                    if detections:
-                        x_center_int = detections[0]['center_x']
-                        print("Original x_center_int:", x_center_int)
-                        x_positions.append(x_center_int)
-                    else:
-                        print("No detections found.")
-
-            if step_count % DETECTION_FRAME_INTERVAL == 0:
+        if COMPETITION:
+            print(f"    Competition mode enabled - waiting for {COMPETITION_START_TIME} seconds.")
+        
+        cap, wheel_motors = init_real_environment(ser)
+        print("3) Robot hardware initialized successfully.")
+        
+        if COMPETITION:
+            time.sleep(COMPETITION_START_TIME)
+            print(f"    {COMPETITION_START_TIME} seconds have passed. Starting the competition.")
+        
+        chase_start_time = time.time()
+        delay = 0.5  # seconds
+        
+        print("4) Starting the main loop.")
+        while True:
+            time.sleep(delay)
+            step_count += 1
+            
+            img = get_image(cap, REMOVE_CAM_BUFFER)
+            
+            if COLLECT_DATA:
+                if img is not None:
+                    print("saved img")
+                    save_image(img, step_count)
+                else:
+                    print("Can't save image, cause frame is not recorded correctly!")
+            
+            if CHASE_BALL and (time.time() - chase_start_time >= GO_HOME_TIMER):
+                CHASE_BALL = False
+                RETURN_HOME = True
+                print(f"    {GO_HOME_TIMER} seconds elapsed in BALL_CHASE mode. Switching to RETURN_HOME mode.")
+            
+            if CHASE_BALL:
+                x_positions = []
+                x_center_int = ball_detection(img, model, step_count)
+                if x_center_int is not None:
+                    x_positions.append(x_center_int)
+                
                 if not x_positions and prev_x_positions:
                     a = x_positions.copy()
                     x_positions = prev_x_positions.copy()
                     prev_x_positions = a.copy()
                 elif not x_positions and not prev_x_positions:
                     print("Rotate right in place to find ball")
-                    left_motor.setVelocity(ROTATION_SPEED)
-                    right_motor.setVelocity(-ROTATION_SPEED)
+                    wheel_motors.setVelocity(ROTATION_SPEED, -ROTATION_SPEED)
                 
                 if x_positions:
-                    # Simple decision: if the last detected ball is to the right, move right, otherwise left.
                     if x_positions[-1] > IMAGE_WIDTH / 2:
                         print("Move to the right")
-                        left_motor.setVelocity(FORWARD_SPEED)
-                        right_motor.setVelocity(FORWARD_SPEED * TURN_RATIO)
+                        wheel_motors.setVelocity(FORWARD_SPEED, FORWARD_SPEED * TURN_RATIO)
                     else:
                         print("Move to the left")
-                        left_motor.setVelocity(FORWARD_SPEED * TURN_RATIO)
-                        right_motor.setVelocity(FORWARD_SPEED)
-        elif RETURN_HOME:
-            if step_count % DETECTION_FRAME_INTERVAL == 0:
-                return_home_deterministic(img, camera, left_motor, right_motor, robot,
-                             step=step_count // DETECTION_FRAME_INTERVAL)
+                        wheel_motors.setVelocity(FORWARD_SPEED * TURN_RATIO, FORWARD_SPEED)
+            elif RETURN_HOME:
+                return_home_deterministic(img, cap, wheel_motors, step=step_count)
+                # return_home(img, wheel_motors, step=step_count, destination_ids=HOME_IDS)
                 # return_home_visual_servo(img, camera, left_motor, right_motor, robot,
-                #             step=step_count // DETECTION_FRAME_INTERVAL)
-                # return_home(img, camera, left_motor, right_motor, robot,
-                #             step=step_count // DETECTION_FRAME_INTERVAL, destination_ids=HOME_IDS)
-        
-            # When the robot has returned home, the return_home function sets:
-            #   CHASE_BALL = True and RETURN_HOME = False.
-            # Detect that switch to reset the chase timer.
-            if CHASE_BALL:
-                chase_start_time = time.time()
-                print("Returned home. Switching back to BALL_CHASE mode and resetting timer.")
-            # if previous_mode != "CHASE_BALL" and CHASE_BALL:
-            #     chase_start_time = time.time()
-            #     print("Returned home. Switching back to BALL_CHASE mode and resetting timer.")
-            
-            # previous_mode = "CHASE_BALL" if CHASE_BALL else "RETURN_HOME"
+                #             step=step_count)
+                if CHASE_BALL:
+                    chase_start_time = time.time()
+                    print("Returned home. Switching back to BALL_CHASE mode and resetting timer.")
     
-    robot.cleanup()
+    except Exception as e:
+        print(f"Error occurred: {e}")
+        wheel_motors.setVelocity(0, 0)
+        print("Robot stopped for safety.")
+    finally:
+        print("Robot stopped due to Crtl + C")
+        cleanup(cap)
 
 if __name__ == "__main__":
     main()

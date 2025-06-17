@@ -11,10 +11,9 @@ IMAGE_WIDTH = 320 # 1024
 IMAGE_HEIGHT = 176 # 768
 
 current_dir = os.path.dirname(__file__)
-relative_path = os.path.join(current_dir, '..', 'weights', 'real-world-detector.pt')
-
-# # relative_path = os.path.join(current_dir, '..', 'weights', 'new-weights', 'yolos-3.onnx')
-# relative_path = os.path.join(current_dir, '..', 'weights', '0-simple.mnn')
+# relative_path = os.path.join(current_dir, '..', 'weights', 'real-world-detector.pt')
+# relative_path = os.path.join(current_dir, '..', 'weights', 'new-weights', 'yolos-3.onnx')
+relative_path = os.path.join(current_dir, '..', 'weights', '0-simple.mnn')
 relative_path_inference_output = os.path.join(current_dir, 'object-detection-inference')
 MODEL_PATH = os.path.abspath(relative_path)
 absolute_path_inference_output = os.path.abspath(relative_path_inference_output)
@@ -47,10 +46,10 @@ while True:
 
     # Run inference on the current frame
     results = model(frame,
-                    conf=CONFIDENCE_THRESHOLD) # ,
-                    # save=COLLECT_INFERENCE_DATA,
-                    # project=absolute_path_inference_output,
-                    # name=f"inference_{step_count}")
+                    conf=CONFIDENCE_THRESHOLD,
+                    save=COLLECT_INFERENCE_DATA,
+                    project=absolute_path_inference_output,
+                    name=f"inference_{step_count}")
     
     # Process the results (assumes single image inference)
     result = results[0]

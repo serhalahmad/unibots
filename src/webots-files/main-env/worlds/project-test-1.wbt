@@ -4,42 +4,49 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/project
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/floors/protos/RectangleArena.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/robots/gctronic/e-puck/protos/E-puck.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/appearances/protos/Parquetry.proto"
 
 WorldInfo {
 }
 Viewpoint {
-  orientation -0.18088760343412483 -0.4113110385657966 0.8933660529020477 5.368301659359662
-  position -0.7004326922320112 0.7518578720500557 0.7438321691067571
+  orientation 0.19499180741907776 -0.0030135795703782418 -0.9808002413221636 3.1719066781778875
+  position 1.0186879989917725 -0.17211392708839926 0.7878470371028016
 }
 TexturedBackground {
 }
 TexturedBackgroundLight {
+  luminosity 1.2
+  castShadows FALSE
 }
 RectangleArena {
   floorSize 2 2
   floorTileSize 0.3 0.3
+  floorAppearance Parquetry {
+    type "dark strip"
+  }
   wallThickness 0.05
 }
 DEF Ball-2 Solid {
-  translation 0.59 -0.32 0.0199474
+  translation -0.13 0.34 0.01
   children [
     Shape {
       appearance PBRAppearance {
       }
       geometry Sphere {
-        radius 0.02
+        radius 0.01
       }
     }
   ]
   name "solid(2)"
   boundingObject Sphere {
-    radius 0.02
+    radius 0.01
   }
   physics Physics {
   }
 }
 DEF Ball-1 Solid {
-  translation 0.4 -0.61 0.0199474
+  translation -0.330182 0.594862 0.01
+  rotation 0 0 1 0.9899488552164322
   children [
     Shape {
       appearance PBRAppearance {
@@ -47,19 +54,20 @@ DEF Ball-1 Solid {
         metalness 0
       }
       geometry Sphere {
-        radius 0.02
+        radius 0.01
       }
     }
   ]
   name "solid(1)"
   boundingObject Sphere {
-    radius 0.02
+    radius 0.01
   }
   physics Physics {
   }
 }
 DEF Ball-3 Solid {
-  translation 0.72 -0.6 0.0199474
+  translation -0.411809 0.219913 0.01
+  rotation 0 0 1 -1.5885485306518676
   children [
     Shape {
       appearance PBRAppearance {
@@ -67,29 +75,29 @@ DEF Ball-3 Solid {
         metalness 0
       }
       geometry Sphere {
-        radius 0.02
+        radius 0.01
       }
     }
   ]
   name "solid(3)"
   boundingObject Sphere {
-    radius 0.02
+    radius 0.01
   }
   physics Physics {
   }
 }
 E-puck {
-  translation 0.844158 -0.838128 0.00144036
-  rotation -0.0006272958090663246 0.0004639518587842732 0.999999695624274 2.39154
+  translation -0.476029 -0.0886195 -0.00125063
+  rotation 0.0022769209023177487 0.0001518200601645559 -0.9999973962875472 0.797606
   controller "my_controller_py"
   camera_fieldOfView 1.5
-  camera_width 1920
-  camera_height 1080
+  camera_width 640
+  camera_height 640
   camera_rotation 0 -1 0 0.3
 }
 DEF apriltag-0 Solid {
-  translation 0.85 -0.985 0.0592089
-  rotation -1.6945805405331507e-09 0.7068262254616984 0.7073872256406448 -3.1415853071795863
+  translation -0.85 0.99 0.0608078
+  rotation -1 0 0 -1.57081
   children [
     Shape {
       appearance Appearance {
@@ -108,8 +116,8 @@ DEF apriltag-0 Solid {
   ]
 }
 DEF apriltag-8 Solid {
-  translation -0.99 -0.25 0.0608877
-  rotation 0.5775038951943139 0.5775028951944954 0.5770438952777949 2.09486
+  translation 0.99 0.25 0.0591126
+  rotation -0.577503930092469 -0.57750293009259 0.5770438254259601 2.09486
   children [
     Shape {
       appearance Appearance {
@@ -129,8 +137,8 @@ DEF apriltag-8 Solid {
   name "solid(5)"
 }
 DEF apriltag-6 Solid {
-  translation -0.99 -0.85 0.0608869
-  rotation 0.5775038951943139 0.5775028951944954 0.5770438952777949 2.09486
+  translation 0.99 0.85 0.0591791
+  rotation -0.5775035965822977 -0.5775035965822977 0.5770434921815005 2.09486
   children [
     Shape {
       appearance Appearance {
@@ -150,8 +158,8 @@ DEF apriltag-6 Solid {
   name "solid(6)"
 }
 DEF apriltag-7 Solid {
-  translation -0.99 -0.55 0.0608869
-  rotation 0.5775038951943139 0.5775028951944954 0.5770438952777949 2.09486
+  translation 0.99 0.55 0.0591678
+  rotation -0.577503930092469 -0.57750293009259 0.5770438254259601 2.09486
   children [
     Shape {
       appearance Appearance {
@@ -171,8 +179,8 @@ DEF apriltag-7 Solid {
   name "solid(11)"
 }
 DEF apriltag-9 Solid {
-  translation -0.99 0.25 0.0608892
-  rotation 0.5775038951943139 0.5775028951944954 0.5770438952777949 2.09486
+  translation 0.99 -0.25 0.0591371
+  rotation -0.577503930092469 -0.57750293009259 0.5770438254259601 2.09486
   children [
     Shape {
       appearance Appearance {
@@ -192,8 +200,8 @@ DEF apriltag-9 Solid {
   name "solid(12)"
 }
 DEF apriltag-10 Solid {
-  translation -0.99 0.55 0.0608895
-  rotation 0.5775038951943139 0.5775028951944954 0.5770438952777949 2.09486
+  translation 0.99 -0.55 0.0591285
+  rotation -0.577503930092469 -0.57750293009259 0.5770438254259601 2.09486
   children [
     Shape {
       appearance Appearance {
@@ -213,8 +221,8 @@ DEF apriltag-10 Solid {
   name "solid(13)"
 }
 DEF apriltag-11 Solid {
-  translation -0.99 0.85 0.0608896
-  rotation 0.5775038951943139 0.5775028951944954 0.5770438952777949 2.09486
+  translation 0.99 -0.85 0.0591412
+  rotation -0.577503930092469 -0.57750293009259 0.5770438254259601 2.09486
   children [
     Shape {
       appearance Appearance {
@@ -234,8 +242,8 @@ DEF apriltag-11 Solid {
   name "solid(14)"
 }
 DEF apriltag-12 Solid {
-  translation -0.85 0.99 0.060803
-  rotation -0.9999998403878297 -0.00040059593606000306 0.00039843093640556335 -1.5708053071795867
+  translation 0.85 -0.99 0.0594296
+  rotation 0 0.7071066717798298 0.7071068905932484 3.14159
   children [
     Shape {
       appearance Appearance {
@@ -255,8 +263,8 @@ DEF apriltag-12 Solid {
   name "solid(15)"
 }
 DEF apriltag-13 Solid {
-  translation -0.55 0.99 0.060619
-  rotation -0.9999998403878297 -0.00040059593606000306 0.00039843093640556335 -1.5708053071795867
+  translation 0.55 -0.99 0.0597095
+  rotation 0 0.7071067811865476 0.7071067811865476 3.14159
   children [
     Shape {
       appearance Appearance {
@@ -276,8 +284,8 @@ DEF apriltag-13 Solid {
   name "solid(16)"
 }
 DEF apriltag-14 Solid {
-  translation -0.25 0.99 0.060379
-  rotation -0.9999998403878297 -0.00040059593606000306 0.00039843093640556335 -1.5708053071795867
+  translation 0.25 -0.99 0.0599573
+  rotation 0 0.7071067811865476 0.7071067811865476 3.14159
   children [
     Shape {
       appearance Appearance {
@@ -297,8 +305,8 @@ DEF apriltag-14 Solid {
   name "solid(17)"
 }
 DEF apriltag-15 Solid {
-  translation 0.25 0.99 0.059979
-  rotation -0.9999998403878297 -0.00040059593606000306 0.00039843093640556335 -1.5708053071795867
+  translation -0.25 -0.99 0.0602939
+  rotation 0 0.7071067811865476 0.7071067811865476 3.14159
   children [
     Shape {
       appearance Appearance {
@@ -318,8 +326,8 @@ DEF apriltag-15 Solid {
   name "solid(18)"
 }
 DEF apriltag-16 Solid {
-  translation 0.55 0.99 0.059739
-  rotation -0.9999998403878297 -0.00040059593606000306 0.00039843093640556335 -1.5708053071795867
+  translation -0.55 -0.99 0.0605258
+  rotation 0 0.7071067811865476 0.7071067811865476 3.14159
   children [
     Shape {
       appearance Appearance {
@@ -339,8 +347,8 @@ DEF apriltag-16 Solid {
   name "solid(19)"
 }
 DEF apriltag-17 Solid {
-  translation 0.85 0.99 0.059499
-  rotation -0.9999998403878297 -0.00040059593606000306 0.00039843093640556335 -1.5708053071795867
+  translation -0.85 -0.99 0.0608058
+  rotation 0 0.7071067811865476 0.7071067811865476 3.14159
   children [
     Shape {
       appearance Appearance {
@@ -360,8 +368,8 @@ DEF apriltag-17 Solid {
   name "solid(20)"
 }
 DEF apriltag-18 Solid {
-  translation 0.99 0.85 0.059386
-  rotation -0.5771988946234049 0.5771928946245003 0.5776588945394249 -2.093935307179586
+  translation -0.99 -0.85 0.0610678
+  rotation 0.5774022977920633 0.5770912472042423 0.577557165053553 2.09394
   children [
     Shape {
       appearance Appearance {
@@ -381,8 +389,8 @@ DEF apriltag-18 Solid {
   name "solid(21)"
 }
 DEF apriltag-19 Solid {
-  translation 0.99 0.55 0.0593837
-  rotation -0.5771988946234049 0.5771928946245003 0.5776588945394249 -2.093935307179586
+  translation -0.99 -0.55 0.06107
+  rotation 0.5773343098895303 0.5771252290279152 0.5775911743126415 2.09394
   children [
     Shape {
       appearance Appearance {
@@ -402,8 +410,8 @@ DEF apriltag-19 Solid {
   name "solid(22)"
 }
 DEF apriltag-20 Solid {
-  translation 0.99 0.25 0.0593812
-  rotation -0.5771988946234049 0.5771928946245003 0.5776588945394249 -2.093935307179586
+  translation -0.99 -0.25 0.0610718
+  rotation 0.5773343098895303 0.5771252290279152 0.5775911743126415 2.09394
   children [
     Shape {
       appearance Appearance {
@@ -423,8 +431,8 @@ DEF apriltag-20 Solid {
   name "solid(23)"
 }
 DEF apriltag-21 Solid {
-  translation 0.99 -0.25 0.0593771
-  rotation -0.5771988946234049 0.5771928946245003 0.5776588945394249 -2.093935307179586
+  translation -0.99 0.25 0.0610994
+  rotation 0.5771989648928784 0.5771928595177499 0.5776588594043309 2.09394
   children [
     Shape {
       appearance Appearance {
@@ -444,8 +452,8 @@ DEF apriltag-21 Solid {
   name "solid(24)"
 }
 DEF apriltag-22 Solid {
-  translation 0.99 -0.55 0.059375
-  rotation -0.5771988946234049 0.5771928946245003 0.5776588945394249 -2.093935307179586
+  translation -0.99 0.55 0.0611049
+  rotation 0.5771989648928784 0.5771928595177499 0.5776588594043309 2.09394
   children [
     Shape {
       appearance Appearance {
@@ -465,8 +473,8 @@ DEF apriltag-22 Solid {
   name "solid(25)"
 }
 DEF apriltag-23 Solid {
-  translation 0.99 -0.85 0.0593726
-  rotation -0.5771988946234049 0.5771928946245003 0.5776588945394249 -2.093935307179586
+  translation -0.99 0.85 0.0610651
+  rotation 0.5771989648928784 0.5771928595177499 0.5776588594043309 2.09394
   children [
     Shape {
       appearance Appearance {
@@ -486,8 +494,8 @@ DEF apriltag-23 Solid {
   name "solid(26)"
 }
 DEF apriltag-5 Solid {
-  translation -0.85 -0.985 0.0606218
-  rotation 0.00028165890166869897 0.7071067531385424 0.7071067531385424 -3.141025307179586
+  translation 0.85 0.99 0.0592458
+  rotation -1 0 0 -1.57081
   children [
     Shape {
       appearance Appearance {
@@ -507,8 +515,8 @@ DEF apriltag-5 Solid {
   name "solid(9)"
 }
 DEF apriltag-4 Solid {
-  translation -0.55 -0.975 0.0605048
-  rotation 0.00028165890166869897 0.7071067531385424 0.7071067531385424 -3.141025307179586
+  translation 0.55 0.99 0.0595288
+  rotation -1 0 0 -1.57081
   children [
     Shape {
       appearance Appearance {
@@ -528,8 +536,8 @@ DEF apriltag-4 Solid {
   name "solid(10)"
 }
 DEF apriltag-1 Solid {
-  translation 0.55 -0.975 0.059219
-  rotation -3.3891510791584073e-09 0.7068252250641434 0.7073882252434113 3.14159
+  translation -0.55 0.99 0.0609474
+  rotation -1 0 0 -1.57081
   children [
     Shape {
       appearance Appearance {
@@ -549,8 +557,8 @@ DEF apriltag-1 Solid {
   name "solid(4)"
 }
 DEF apriltag-2 Solid {
-  translation 0.25 -0.985 0.0592102
-  rotation -3.3891510791584073e-09 0.7068252250641434 0.7073882252434113 3.14159
+  translation -0.25 0.99 0.0609749
+  rotation -1 0 0 -1.57081
   children [
     Shape {
       appearance Appearance {
@@ -570,8 +578,8 @@ DEF apriltag-2 Solid {
   name "solid(7)"
 }
 DEF apriltag-3 Solid {
-  translation -0.25 -0.985 0.0592109
-  rotation -5.083731618739203e-09 0.7068252250641434 0.7073882252434113 3.14159
+  translation 0.25 0.99 0.0609485
+  rotation -1 0 0 -1.57081
   children [
     Shape {
       appearance Appearance {
@@ -589,4 +597,326 @@ DEF apriltag-3 Solid {
     }
   ]
   name "solid(8)"
+}
+DEF Red-Border-NW1 Pose {
+  translation -0.525 0.75 0.001
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 0.8 0 0
+        }
+      }
+      geometry Plane {
+        size 0.05 0.5
+      }
+    }
+  ]
+}
+DEF Blue-Border-NW1 Pose {
+  translation -0.7 0.85 0.001
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 0 0 0.8
+        }
+      }
+      geometry Plane {
+        size 0.05 0.35
+      }
+    }
+  ]
+}
+DEF Blue-Border-NE1 Pose {
+  translation 0.7 0.85 0.001
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 0 0 0.8
+        }
+      }
+      geometry Plane {
+        size 0.05 0.35
+      }
+    }
+  ]
+}
+DEF Blue-Border-SE1 Pose {
+  translation 0.7 -0.85 0.001
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 0 0 0.8
+        }
+      }
+      geometry Plane {
+        size 0.05 0.35
+      }
+    }
+  ]
+}
+DEF Blue-Border-SW1 Pose {
+  translation -0.7 -0.85 0.001
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 0 0 0.8
+        }
+      }
+      geometry Plane {
+        size 0.05 0.35
+      }
+    }
+  ]
+}
+DEF Blue-Border-SW2 Pose {
+  translation -0.85 -0.7 0.001
+  rotation 0 0 1 1.5708
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 0 0 0.8
+        }
+      }
+      geometry Plane {
+        size 0.05 0.35
+      }
+    }
+  ]
+}
+DEF Blue-Border-SE2 Pose {
+  translation 0.85 -0.7 0.001
+  rotation 0 0 1 1.5708
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 0 0 0.8
+        }
+      }
+      geometry Plane {
+        size 0.05 0.35
+      }
+    }
+  ]
+}
+DEF Blue-Border-NE2 Pose {
+  translation 0.85 0.7 0.001
+  rotation 0 0 1 1.5708
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 0 0 0.8
+        }
+      }
+      geometry Plane {
+        size 0.05 0.35
+      }
+    }
+  ]
+}
+DEF Blue-Border-NW2 Pose {
+  translation -0.85 0.7 0.001
+  rotation 0 0 1 1.5708
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 0 0 0.8
+        }
+      }
+      geometry Plane {
+        size 0.05 0.35
+      }
+    }
+  ]
+}
+DEF Red-Border-NE1 Pose {
+  translation 0.525 0.75 0.001
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 0.8 0 0
+        }
+      }
+      geometry Plane {
+        size 0.05 0.5
+      }
+    }
+  ]
+}
+DEF Red-Border-SE1 Pose {
+  translation 0.525 -0.75 0.001
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 0.8 0 0
+        }
+      }
+      geometry Plane {
+        size 0.05 0.5
+      }
+    }
+  ]
+}
+DEF Red-Border-SW1 Pose {
+  translation -0.525 -0.75 0.001
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 0.8 0 0
+        }
+      }
+      geometry Plane {
+        size 0.05 0.5
+      }
+    }
+  ]
+}
+DEF Red-Border-NW2 Pose {
+  translation -0.75 0.525 0.001
+  rotation 0 0 -1 -1.569205307179586
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 0.8 0 0
+        }
+      }
+      geometry Plane {
+        size 0.05 0.5
+      }
+    }
+  ]
+}
+DEF Red-Border-NE2 Pose {
+  translation 0.75 0.525 0.001
+  rotation 0 0 -1 -1.569205307179586
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 0.8 0 0
+        }
+      }
+      geometry Plane {
+        size 0.05 0.5
+      }
+    }
+  ]
+}
+DEF Red-Border-SE2 Pose {
+  translation 0.75 -0.525 0.001
+  rotation 0 0 -1 -1.569205307179586
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 0.8 0 0
+        }
+      }
+      geometry Plane {
+        size 0.05 0.5
+      }
+    }
+  ]
+}
+DEF Red-Border-SW2 Pose {
+  translation -0.75 -0.525 0.001
+  rotation 0 0 -1 -1.569205307179586
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 0.8 0 0
+        }
+      }
+      geometry Plane {
+        size 0.05 0.5
+      }
+    }
+  ]
+}
+DirectionalLight {
+  direction -1 -1 0
+}
+DirectionalLight {
+  direction 1 -1 0
+}
+DirectionalLight {
+  direction -1 1 0
+}
+DirectionalLight {
+  direction 1 1 0
+}
+DEF rugby-ball Transform {
+  translation -0.252929 -0.437071 0.03
+  rotation 0 0 1 0.785398
+  scale 0.21 0.167 0.167
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 0.305882 0.054902 0.0588235
+        }
+      }
+      geometry Mesh {
+        url [
+          "../objects/rugby-ball.obj"
+        ]
+      }
+    }
+  ]
+}
+DEF rugby-ball Transform {
+  translation -0.493343 -0.408787 0.03
+  rotation 0 0 1 0.785398
+  scale 0.21 0.167 0.167
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 0.0784314 0.345098 0.839216
+        }
+      }
+      geometry Mesh {
+        url [
+          "../objects/rugby-ball.obj"
+        ]
+      }
+    }
+  ]
+}
+DEF rugby-ball Transform {
+  translation -0.75497 -0.14716 0.03
+  rotation 0 0 1 1.8326
+  scale 0.21 0.167 0.167
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 1 1 1
+        }
+        texture ImageTexture {
+          url [
+            "../objects/61713.jpg"
+          ]
+        }
+      }
+      geometry Mesh {
+        url [
+          "../objects/rugby-ball.obj"
+        ]
+      }
+    }
+  ]
 }
