@@ -22,11 +22,3 @@
 ## To do
 
 - Update WeBots simulation paths with new folder structure
-
-## Installation Guide
-
-- Begin by cloning the repository or downloading the zip file for the project
-- You need to have the Webots installed to work with the simulation environment files.
-  - If you have Webots then you can use the simulation project files located in `src/webots-files/main-env/worlds/` to get the environment files.
-  - After this to get the associated controller scripts to work you would need to begin by installing all of the necessary packages using the following command:  `pip3 install env.txt`
-  - Now run the object detection model files to train the model first and then run the simulation inside Webots to see the robot move around. If you need to update the controller file then you can edit the file: `src/webots-files/main-env/controllers/'my controller py'/my_controller.py`.
