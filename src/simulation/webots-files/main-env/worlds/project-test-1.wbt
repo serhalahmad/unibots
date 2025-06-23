@@ -89,7 +89,7 @@ DEF Ball-3 Solid {
 E-puck {
   translation -0.476029 -0.0886195 -0.00125063
   rotation 0.0022769209023177487 0.0001518200601645559 -0.9999973962875472 0.797606
-  controller "my_controller_py"
+  controller "controller_simulation"
   camera_fieldOfView 1.5
   camera_width 640
   camera_height 640
