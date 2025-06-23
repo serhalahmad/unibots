@@ -5,4 +5,5 @@
 *.env
 src/Ping-Pong*
 src/Rugby-Ball*
-src/webots-files/main-env/objects/rugby-ball-texture.jpg
+
+!src/simulation/webots-files/main-env/april-tags/*
