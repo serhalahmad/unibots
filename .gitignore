@@ -3,7 +3,8 @@
 *.jpg
 *.jpeg
 *.env
-src/Ping-Pong*
-src/Rugby-Ball*
+src/ai-training/Ping-Pong*
+src/ai-training/Rugby-Ball*
+src/ai-training/WeBots*
 
 !src/simulation/webots-files/main-env/april-tags/*

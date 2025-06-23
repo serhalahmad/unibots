@@ -1,0 +1,1 @@
+This folder is used to investigate how the model predictions look like in the simulation

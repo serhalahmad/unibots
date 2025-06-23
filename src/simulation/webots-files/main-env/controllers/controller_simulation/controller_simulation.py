@@ -10,7 +10,7 @@ import math
 import os
 
 current_dir = os.path.dirname(__file__)
-relative_path = os.path.join(current_dir, '..', '..', '..', '..', '..', 'weights', 'real-world-detector.pt')
+relative_path = os.path.join(current_dir, '..', '..', '..', '..', '..', '..', 'weights', 'simulation-detector.pt')
 MODEL_PATH = os.path.abspath(relative_path)
 
 ################
@@ -20,6 +20,7 @@ MODEL_PATH = os.path.abspath(relative_path)
 # MODEL_PATH = r"yolo11s.pt" # Use standard model instead    
 CONFIDENCE_THRESHOLD = 0.15
 DETECTION_FRAME_INTERVAL = 30 # controls how many frames are skipped between apriltag / ball detection is performed
+DATA_COLLECTION_INTERVAL = 15
 CAMERA_NAME = "camera"
 OBJECT_DETECTION_CLASSES = ["rugby-balls", "ping-pong-ball"]
 DISTANCE_THRESHOLD = 500 # 350.0 # Determinisitc works perfect so: blue zone 350 red zone 500 
@@ -31,7 +32,7 @@ MAX_MOTOR_SPEED = 3 # WeBots speed limit:= 6.28 rad/s
 ANGLE_GAIN = 3
 TURN_RATIO = 0.7
 COMPETITION_START_TIME = 3 # seconds
-GO_HOME_TIMER = 60 # seconds
+GO_HOME_TIMER = 120 # seconds
 LAST_TAG_SIDE = None
 HOME_TAGS_CENTER_TOLERANCE = 50 # pixels
 # Original working verison: 1920x1080 | Old: 680x480 | New: 640x640
@@ -158,7 +159,7 @@ def bytes_to_numpy(img_bytes, camera):
         return None
 
 
-def ball_detection(img, camera, model):
+def ball_detection(img, camera, model, step_count):
     global COLLECT_INFERENCE_DATA, CONFIDENCE_THRESHOLD, IMAGE_WIDTH, IMAGE_HEIGHT, OBJECT_DETECTION_CLASSES
     detections = []  # List to store info for each detected ball
     try:
@@ -174,14 +175,17 @@ def ball_detection(img, camera, model):
         print("Model inference starting...")
 
         # Run the YOLOv11 model on the image
-        results = model(image_np, conf=CONFIDENCE_THRESHOLD, save=COLLECT_INFERENCE_DATA)
+        results = model(image_np, conf=CONFIDENCE_THRESHOLD)# , save=COLLECT_INFERENCE_DATA, )
 
         # Process and print detected objects
         result = results[0]  # Since there's only one image
         boxes = result.boxes  # Boxes object for bounding box outputs
 
         # Define your class names (must be in the same order as in your model training)
-        
+        if COLLECT_INFERENCE_DATA:
+            for result in results:
+                out_path = result.save(f"object_detection_predictions/inference_{step_count}.jpg")
+                print(f"Saved annotated image to {out_path}")
 
         if boxes:
             for box in boxes:
@@ -747,11 +751,13 @@ def main():
 
         # Capture the image from the camera
         img = camera.getImage()
-        
-        if COLLECT_DATA:
-            pil_img = Image.frombytes('RGB', (IMAGE_WIDTH, IMAGE_HEIGHT), img)
-            filename = f"img_{step_count}.png"
-            pil_img.save(filename)
+                
+        if COLLECT_DATA and step_count % DATA_COLLECTION_INTERVAL == 0:
+            pil_img = Image.frombytes('RGBA', (IMAGE_WIDTH, IMAGE_HEIGHT), img, 'raw', 'BGRA')
+            # pil_img = pil_img.transpose(Image.FLIP_TOP_BOTTOM)
+            # pil_img = pil_img.convert('RGB')
+            pil_img.save(f"frames/raw_frame_{step_count}.png")
+            print(f"Frame {step_count} saved for data collection.")
         
         # Check if 15 seconds have elapsed in BALL_CHASE mode.
         if CHASE_BALL and (time.time() - chase_start_time >= GO_HOME_TIMER):
@@ -765,7 +771,7 @@ def main():
             if img:
                 # Perform ball detection at defined intervals
                 if step_count % DETECTION_FRAME_INTERVAL == 0:
-                    detections = ball_detection(img, camera, model)
+                    detections = ball_detection(img, camera, model, step_count)
                     x_center_int = None
                     if detections:
                         x_center_int = detections[0]['center_x']

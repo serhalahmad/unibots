@@ -1,0 +1,1 @@
+This folder will show images from the object detection system

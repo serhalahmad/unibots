@@ -1,0 +1,1 @@
+This folder is to capture raw frames for data collection to then annotate them and train ai models
