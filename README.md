@@ -12,7 +12,10 @@
         - 'conda activate base'
         - 'conda activate unibots-env'
 3) pip install -r requirements.txt
-4) python real_controller_py.py (to check if no import errors occur)
+4) python controller_simulation.py (to check if no import errors occur)
+5) Simulation:
+    a. Tools -> Preferences -> Python command: Enter the path to the conda env's python.exe (e.g. C:\Users\Karl\anaconda3\envs\unibots-env\python.exe)
+
 
 ## Current Progress
 
