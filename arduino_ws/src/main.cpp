@@ -13,7 +13,7 @@
 UnibotsServo backServo(SERVO_PIN, 90);                                                // servo for the back of the rugby storage
 UnibotsDCMotor dc_motor_1(DC_MOTOR_1_PWM_PIN, DC_MOTOR_1_CW_PIN, DC_MOTOR_1_CCW_PIN); // First motor
 
-int test_mode = SERVO_MODE;
+int test_mode = DC_MOTOR_MODE;
 
 void setup()
 {
@@ -38,10 +38,12 @@ void loop()
   {
   case SERVO_MODE:
     Serial.println("Testing Servo...");
-    backServo.set_angle(0);
+    // backServo.set_angle(270); // catch
+    // delay(1000);
+    backServo.set_angle(-90); // release
     delay(1000);
-    backServo.set_angle(180);
-    delay(1000);
+    // backServo.set_angle(0);
+    // delay(1000);
     break;
   case DC_MOTOR_MODE:
     Serial.println("Testing DC Motor...");
