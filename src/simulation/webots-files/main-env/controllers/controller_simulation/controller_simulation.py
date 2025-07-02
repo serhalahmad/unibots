@@ -19,20 +19,21 @@ MODEL_PATH = os.path.abspath(relative_path)
 
 # MODEL_PATH = r"yolo11s.pt" # Use standard model instead    
 CONFIDENCE_THRESHOLD = 0.15
-DETECTION_FRAME_INTERVAL = 30 # controls how many frames are skipped between apriltag / ball detection is performed
+DETECTION_FRAME_INTERVAL = 15 # 30 # controls how many frames are skipped between apriltag / ball detection is performed
 DATA_COLLECTION_INTERVAL = 15
+FRAMES_TILL_TARGET_SWITCH = 50 # How many frames to wait before switching target ball
 CAMERA_NAME = "camera"
 OBJECT_DETECTION_CLASSES = ["rugby-balls", "ping-pong-ball"]
 DISTANCE_THRESHOLD = 500 # 350.0 # Determinisitc works perfect so: blue zone 350 red zone 500 
 HOME_IDS = [23, 0] # [23, 0]!!!! OR [5, 6] OR [11, 12] OR [17, 18]
-FORWARD_SPEED = 3.0  # Adjust this value as needed
-ROTATION_SPEED = 1.0
+FORWARD_SPEED = 5.0  # Adjust this value as needed
+ROTATION_SPEED = 3.5
 TURN_SPEED_RATIO = 0.7 # Speed ratio of ROTATION_SPEED - to keep moving towards last april tag position
-MAX_MOTOR_SPEED = 3 # WeBots speed limit:= 6.28 rad/s
-ANGLE_GAIN = 3
+MAX_MOTOR_SPEED = 6.28 # WeBots speed limit:= 6.28 rad/s
+ANGLE_GAIN = 6
 TURN_RATIO = 0.7
 COMPETITION_START_TIME = 3 # seconds
-GO_HOME_TIMER = 120 # seconds
+GO_HOME_TIMER = 15 # seconds
 LAST_TAG_SIDE = None
 HOME_TAGS_CENTER_TOLERANCE = 50 # pixels
 # Original working verison: 1920x1080 | Old: 680x480 | New: 640x640
@@ -55,7 +56,7 @@ CHASE_BALL = True
 RETURN_HOME = False
 
 # INDEPENDENT STATES
-COLLECT_DATA = False # save frames to disk, to create training data
+COLLECT_DATA = True # save frames to disk, to create training data
 COLLECT_INFERENCE_DATA = True # save inference data to disk, to check out inference results
 
 # Weird coordinates, because ESU is NOT SUPPORTED in Webots!!!
@@ -158,67 +159,56 @@ def bytes_to_numpy(img_bytes, camera):
         print(f"Error converting bytes to NumPy array: {e}")
         return None
 
-
 def ball_detection(img, camera, model, step_count):
-    global COLLECT_INFERENCE_DATA, CONFIDENCE_THRESHOLD, IMAGE_WIDTH, IMAGE_HEIGHT, OBJECT_DETECTION_CLASSES
-    detections = []  # List to store info for each detected ball
-    try:
-        # Convert the raw image data to a NumPy array
-        img_array = np.frombuffer(img, dtype=np.uint8).reshape((IMAGE_HEIGHT, IMAGE_WIDTH, 4))
+    # 1) RGBA → RGB NumPy array (unchanged)
+    img_array = np.frombuffer(img, dtype=np.uint8).reshape((IMAGE_HEIGHT, IMAGE_WIDTH, 4))
+    img_rgb   = img_array[:, :, :3]
+    image_np  = np.array(Image.fromarray(img_rgb))
 
-        # Convert RGBA to RGB by removing the alpha channel
-        img_rgb = img_array[:, :, :3]
+    print("Model inference starting...")
 
-        # Create a PIL Image from the NumPy array
-        image = Image.fromarray(img_rgb)
-        image_np = np.array(image)
-        print("Model inference starting...")
+    # 2) Run our combined detect+track in one shot, with BoT-SORT (no optical flow)
+    results = model.track(
+        source = image_np,
+        conf   = CONFIDENCE_THRESHOLD,
+        persist= True,
+        tracker= 'botsort.yaml'        # <— switch to BoT-SORT (no cv2.calcOpticalFlowPyrLK)
+    )
 
-        # Run the YOLOv11 model on the image
-        results = model(image_np, conf=CONFIDENCE_THRESHOLD)# , save=COLLECT_INFERENCE_DATA, )
+    # 3) Grab the first (and only) frame’s result
+    result = results[0]
+    if COLLECT_INFERENCE_DATA:
+        result.save(f"object_detection_predictions/inference_{step_count}.jpg")
 
-        # Process and print detected objects
-        result = results[0]  # Since there's only one image
-        boxes = result.boxes  # Boxes object for bounding box outputs
+    # 4) Build your detections list exactly as before
+        detections = []
+    for box in result.boxes:
+        x1, y1, x2, y2 = box.xyxy[0]
+        id_attr   = getattr(box, "id",   None)
+        cls_attr  = getattr(box, "cls",  None)
+        conf_attr = getattr(box, "conf", None)
 
-        # Define your class names (must be in the same order as in your model training)
-        if COLLECT_INFERENCE_DATA:
-            for result in results:
-                out_path = result.save(f"object_detection_predictions/inference_{step_count}.jpg")
-                print(f"Saved annotated image to {out_path}")
+        track_id    = int(id_attr.item())   if id_attr   is not None else -1
+        class_index = int(cls_attr.item())  if cls_attr  is not None else -1
+        confidence  = float(conf_attr.item()) if conf_attr is not None else 0.0
+        x_center    = int(((x1 + x2) / 2).item())
 
-        if boxes:
-            for box in boxes:
-                # Extract bounding box coordinates (x1, y1, x2, y2)
-                x1, y1, x2, y2 = box.xyxy[0]
-                # Calculate the center x position
-                x_center = (x1 + x2) / 2
-                x_center_int = int(x_center.item())
+        detected_class = (
+            OBJECT_DETECTION_CLASSES[class_index]
+            if 0 <= class_index < len(OBJECT_DETECTION_CLASSES)
+            else "Unknown"
+        )
 
-                # Extract class index (assuming box.cls is available) and confidence
-                class_index = int(box.cls.item())
-                confidence = box.conf.item() if hasattr(box, "conf") else 0.0
-                detected_class = OBJECT_DETECTION_CLASSES[class_index] if class_index < len(OBJECT_DETECTION_CLASSES) else "Unknown"
-
-                # Print information about this detection
-                print(f"Detected {detected_class} with confidence {confidence:.2f} at center x: {x_center_int}")
-                print(f"Bounding box: ({x1:.2f}, {y1:.2f}, {x2:.2f}, {y2:.2f})")
-
-                # Append detection info to the list
-                detections.append({
-                    "class": detected_class,
-                    "confidence": confidence,
-                    "center_x": x_center_int,
-                    "bbox": (float(x1), float(y1), float(x2), float(y2))
-                })
-        else:
-            print("No balls detected in the image.")
-
-    except Exception as e:
-        print(f"Error during image processing or detection: {e}")
+        print(f"[ID {track_id}] {detected_class} conf={confidence:.2f} "
+              f"bbox=({x1:.0f},{y1:.0f},{x2:.0f},{y2:.0f})")
+        detections.append({
+            "id":         track_id,
+            "class":      detected_class,
+            "confidence": confidence,
+            "center_x":   x_center,
+            "bbox":       (float(x1), float(y1), float(x2), float(y2))
+        })
     return detections
-
-
 
 def arrival_routine(left_motor, right_motor, robot):
     """
@@ -724,10 +714,41 @@ def estimate_robot_pose(detections):
     else:
         return None
 
+def parse_boxes_into_detections(boxes, step_count):
+    """
+    Turn a YOLOv11 Results.boxes object into your `detections` list.
+    """
+    detections = []
+    for box in boxes:
+        x1, y1, x2, y2 = box.xyxy[0]
+        x_center = int(((x1 + x2) / 2).item())
+        class_index = int(box.cls.item()) if hasattr(box, "cls") else -1
+        confidence  = float(box.conf.item()) if hasattr(box, "conf") else 0.0
+        track_id    = int(box.id.item())  if hasattr(box, "id")   else -1
+
+        detected_class = (
+            OBJECT_DETECTION_CLASSES[class_index]
+            if 0 <= class_index < len(OBJECT_DETECTION_CLASSES)
+            else "Unknown"
+        )
+
+        print(f"[ID {track_id}] {detected_class} conf={confidence:.2f} bbox=({x1:.0f},{y1:.0f},{x2:.0f},{y2:.0f})")
+        detections.append({
+            "id":         track_id,
+            "class":      detected_class,
+            "confidence": confidence,
+            "center_x":   x_center,
+            "bbox":       (float(x1), float(y1), float(x2), float(y2))
+        })
+    return detections
+
 
 def main():
-    global CHASE_BALL, RETURN_HOME, FORWARD_SPEED, ROTATION_SPEED, TURN_RATIO, COMPETITION, COLLECT_DATA, GO_HOME_TIMER, IMAGE_WIDTH, IMAGE_HEIGHT, DETECTION_FRAME_INTERVAL, MODEL_PATH, CAMERA_NAME, OBJECT_DETECTION_CLASSES, COMPETITION_START_TIME, HOME_IDS, TAG_POSITIONS, HOME_POSITIONS
+    global CHASE_BALL, RETURN_HOME, FORWARD_SPEED, ROTATION_SPEED, TURN_RATIO, COMPETITION, COLLECT_DATA, GO_HOME_TIMER, IMAGE_WIDTH, IMAGE_HEIGHT, FRAMES_TILL_TARGET_SWITCH, DETECTION_FRAME_INTERVAL, MODEL_PATH, CAMERA_NAME, OBJECT_DETECTION_CLASSES, COMPETITION_START_TIME, HOME_IDS, TAG_POSITIONS, HOME_POSITIONS
+    current_target_id  = None
+    frames_since_seen  = 0
     model = load_model(MODEL_PATH)
+    
     if COMPETITION:
         print(f"Competition mode enabled - waiting for {COMPETITION_START_TIME} seconds.")
     
@@ -754,8 +775,6 @@ def main():
                 
         if COLLECT_DATA and step_count % DATA_COLLECTION_INTERVAL == 0:
             pil_img = Image.frombytes('RGBA', (IMAGE_WIDTH, IMAGE_HEIGHT), img, 'raw', 'BGRA')
-            # pil_img = pil_img.transpose(Image.FLIP_TOP_BOTTOM)
-            # pil_img = pil_img.convert('RGB')
             pil_img.save(f"frames/raw_frame_{step_count}.png")
             print(f"Frame {step_count} saved for data collection.")
         
@@ -766,61 +785,48 @@ def main():
             print(f"{GO_HOME_TIMER} seconds elapsed in BALL_CHASE mode. Switching to RETURN_HOME mode.")
         
         if CHASE_BALL:
-            x_positions = []
-
-            if img:
-                # Perform ball detection at defined intervals
-                if step_count % DETECTION_FRAME_INTERVAL == 0:
-                    detections = ball_detection(img, camera, model, step_count)
-                    x_center_int = None
-                    if detections:
-                        x_center_int = detections[0]['center_x']
-                        print("Original x_center_int:", x_center_int)
-                        x_positions.append(x_center_int)
-                    else:
-                        print("No detections found.")
-
+            # only do detection every N frames 
             if step_count % DETECTION_FRAME_INTERVAL == 0:
-                if not x_positions and prev_x_positions:
-                    a = x_positions.copy()
-                    x_positions = prev_x_positions.copy()
-                    prev_x_positions = a.copy()
-                elif not x_positions and not prev_x_positions:
-                    print("Rotate right in place to find ball")
-                    left_motor.setVelocity(ROTATION_SPEED)
+                detections = ball_detection(img, camera, model, step_count)
+
+                if detections:
+                    frames_since_seen = 0
+                    seen_ids = [d['id'] for d in detections]
+                    if current_target_id not in seen_ids or frames_since_seen >= FRAMES_TILL_TARGET_SWITCH or current_target_id is None:
+                        # choose the ball with the *lowest* center-y pixel (closest)
+                        best = max(detections, key=lambda d: ((d['bbox'][1] + d['bbox'][3]) / 2))
+                        current_target_id = best['id']
+                        print(f"Switched target → ID {current_target_id}")
+                    target = next(d for d in detections if d['id'] == current_target_id)
+
+                    # Compute horizontal error and P‐turn
+                    x_err = target['center_x'] - IMAGE_WIDTH/2
+                    Kp    = 0.005
+                    turn  = Kp * x_err
+                 
+                    # drive forward + turn toward the ball (swap signs)
+                    left_motor .setVelocity(FORWARD_SPEED + turn)
+                    right_motor.setVelocity(FORWARD_SPEED - turn)
+
+                else:
+                    # no detections at all this frame
+                    frames_since_seen += 1
+
+                    # if we’ve now missed the target for too long, reset it
+                    if frames_since_seen >= FRAMES_TILL_TARGET_SWITCH:
+                        print(f"Lost target ID {current_target_id}, will reselect.")
+                        current_target_id = None
+
+                    # optional: spin in place to look for balls
+                    left_motor.setVelocity (ROTATION_SPEED)
                     right_motor.setVelocity(-ROTATION_SPEED)
-                
-                if x_positions:
-                    # Simple decision: if the last detected ball is to the right, move right, otherwise left.
-                    if x_positions[-1] > IMAGE_WIDTH / 2:
-                        print("Move to the right")
-                        left_motor.setVelocity(FORWARD_SPEED)
-                        right_motor.setVelocity(FORWARD_SPEED * TURN_RATIO)
-                    else:
-                        print("Move to the left")
-                        left_motor.setVelocity(FORWARD_SPEED * TURN_RATIO)
-                        right_motor.setVelocity(FORWARD_SPEED)
+
         elif RETURN_HOME:
             if step_count % DETECTION_FRAME_INTERVAL == 0:
-                return_home_deterministic(img, camera, left_motor, right_motor, robot,
-                             step=step_count // DETECTION_FRAME_INTERVAL)
-                # return_home_visual_servo(img, camera, left_motor, right_motor, robot,
-                #             step=step_count // DETECTION_FRAME_INTERVAL)
-                # return_home(img, camera, left_motor, right_motor, robot,
-                #             step=step_count // DETECTION_FRAME_INTERVAL, destination_ids=HOME_IDS)
-        
-            # When the robot has returned home, the return_home function sets:
-            #   CHASE_BALL = True and RETURN_HOME = False.
-            # Detect that switch to reset the chase timer.
+                return_home_deterministic(img, camera, left_motor, right_motor, robot, step=step_count // DETECTION_FRAME_INTERVAL)
             if CHASE_BALL:
                 chase_start_time = time.time()
-                print("Returned home. Switching back to BALL_CHASE mode and resetting timer.")
-            # if previous_mode != "CHASE_BALL" and CHASE_BALL:
-            #     chase_start_time = time.time()
-            #     print("Returned home. Switching back to BALL_CHASE mode and resetting timer.")
-            
-            # previous_mode = "CHASE_BALL" if CHASE_BALL else "RETURN_HOME"
-    
+                print("Returned home. Switching back to BALL_CHASE mode and resetting timer.")    
     robot.cleanup()
 
 if __name__ == "__main__":
