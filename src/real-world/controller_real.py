@@ -9,9 +9,11 @@ import math
 import os
 import serial
 import torch
+import multiprocessing
 
 current_dir = os.path.dirname(__file__)
-relative_path = os.path.join(current_dir, '..', '..', '..', '..', '..', 'weights', 'real-world-detector.pt')
+# relative_path = os.path.join(current_dir, '..', '..', '..', '..', '..', 'weights', 'real-world-detector.pt')
+relative_path = os.path.join(current_dir, '..', '..', '..', '..', '..', 'weights', '0-simple.mnn')
 MODEL_PATH = os.path.abspath(relative_path)
 
 ################
@@ -20,26 +22,20 @@ MODEL_PATH = os.path.abspath(relative_path)
 
 # MODEL_PATH = r"yolo11s.pt" # Use standard model instead    
 CONFIDENCE_THRESHOLD = 0.5
+DETECTION_FRAME_INTERVAL = 25 # controls how many frames are skipped between apriltag / ball detection is performed
 # CAMERA_NAME = "camera"
-DISTANCE_THRESHOLD = 500 # 350.0 # Determinisitc works perfect so: blue zone 350 red zone 500 
-# HOME_IDS = [23, 0]
-HOME_IDS = [11, 12]
-FORWARD_SPEED = 50 # 75
-ROTATION_SPEED = 35 # 50 # min: 50 (*0.7 = 35 (real minimum))
-TURN_SPEED_RATIO = 0.7 # Speed ratio of ROTATION_SPEED - to keep moving towards last april tag position
-MAX_MOTOR_SPEED = 150 # Real max speed: 150 | WeBots speed limit:= 6.28 rad/s
-ANGLE_GAIN = 12 # simulation is 3 / real: 3-20 *(left 48, right 102)
-TURN_RATIO = 0.7 # 0.7
+DISTANCE_THRESHOLD = 500 # 300.0
+HOME_IDS = [5, 6]
+ROTATION_SPEED = 50
+FORWARD_SPEED = 80
+MAX_MOTOR_SPEED = 80 # Real max speed: 150 | WeBots speed limit:= 6.28 rad/s
+ANGLE_GAIN = 12 # 12 # simulation is 3 / real: 3-20 *(left 48, right 102)
+TURN_RATIO = 0.75 # 0.7
+HOME_TURN_RATIO = -1 # 0.65
+LAST_HOME_ROTATION_DIR = 1 # -1: left, 1: right
+LAST_BALL_ROTATION_DIR = 1
 COMPETITION_START_TIME = 3 # seconds
 GO_HOME_TIMER = 120 # seconds
-LAST_TAG_SIDE = None
-HOME_TAGS_CENTER_TOLERANCE = 50 # pixels
-STEER_GAIN = 0.2 # visual return_home() function
-
-TOP_TAGS = set(range(0, 6))      # IDs 0..5
-RIGHT_TAGS = set(range(6, 12))   # IDs 6..11
-BOTTOM_TAGS = set(range(12, 18)) # IDs 12..17
-LEFT_TAGS = set(range(18, 24))   # IDs 18..23
 
 ### CAMERA PARAMETERS ###
 REMOVE_CAM_BUFFER = 10 # frames to be deleted in the camera buffer, before taking new img
@@ -51,55 +47,38 @@ TAG_SIDE_METERS = 0.1 # example: 10cm wide tags
 
 # ROBOT STATES
 COMPETITION = False
-CHASE_BALL = True
-RETURN_HOME = False
+CHASE_BALL = False
+RETURN_HOME = True
 
 # INDEPENDENT STATES
 COLLECT_DATA = True # save frames to disk, to create training data
 COLLECT_INFERENCE_DATA = True # save inference data to disk, to check out inference results
 
-# Weird coordinates, because ESU is NOT SUPPORTED in Webots!!!
-# Arena corners / Start Positions: 
-#   North-West: (-1000, 1000)
-#   North-East: (1000, 1000)
-#   South-East: (1000, -1000)
-#   South-West: (-1000, -1000)
-
-# Distances along each edge (in mm): 150, 300, 300, 500, 300, 300, 150.
-
 TAG_POSITIONS = {
-    0:  (-850, 1000),  # Top edge, 150 mm from left (NW) corner
-    1:  (-550, 1000),
-    2:  (-250, 1000),
-    3:  (250, 1000),
-    4:  (550, 1000),
-    5:  (850, 1000),   # Top edge, 150 mm from right (NE) corner
-    6:  (1000, 850),   # Right edge, 150 mm from top (NE) corner
-    7:  (1000, 550),
-    8:  (1000, 250),
-    9:  (1000, -250),
-    10: (1000, -550),
-    11: (1000, -850),  # Right edge, 150 mm from bottom (SE) corner
-    12: (850, -1000),  # Bottom edge, 150 mm from right (SE) corner
-    13: (550, -1000),
-    14: (250, -1000),
-    15: (-250, -1000),
-    16: (-550, -1000),
-    17: (-850, -1000), # Bottom edge, 150 mm from left (SW) corner
-    18: (-1000, -850), # Left edge, 150 mm from bottom (SW) corner
-    19: (-1000, -550),
-    20: (-1000, -250),
-    21: (-1000, 250),
-    22: (-1000, 550),
-    23: (-1000, 850),  # Left edge, 150 mm from top (NW) corner
-}
-
-# SWAPPED (23, 0) to work in april tags directions
-HOME_POSITIONS = {
-    (23, 0): (-1000, 1000),    # NW corner: midpoint of TAG_POSITIONS[0] and TAG_POSITIONS[23]
-    (5, 6): (1000, 1000),      # NE corner: midpoint of TAG_POSITIONS[5] and TAG_POSITIONS[6]
-    (11, 12): (1000, -1000),   # SE corner: midpoint of TAG_POSITIONS[11] and TAG_POSITIONS[12]
-    (17, 18): (-1000, -1000)   # SW corner: midpoint of TAG_POSITIONS[17] and TAG_POSITIONS[18]
+    0:  (150, 2000),
+    1:  (450, 2000),
+    2:  (750, 2000),
+    3:  (1250, 2000),
+    4:  (1550, 2000),
+    5:  (1850, 2000),
+    6:  (2000, 1850),
+    7:  (2000, 1550),
+    8:  (2000, 1250),
+    9:  (2000, 750),
+    10: (2000, 450),
+    11: (2000, 150),
+    12: (1850, 0),
+    13: (1550, 0),
+    14: (1250, 0),
+    15: (750, 0),
+    16: (450, 0),
+    17: (150, 0),
+    18: (0, 150),
+    19: (0, 450),
+    20: (0, 750),
+    21: (0, 1250),
+    22: (0, 1550),
+    23: (0, 1850),
 }
 
 
@@ -131,7 +110,11 @@ def bytes_to_numpy(img_bytes):
     """
     global IMAGE_WIDTH, IMAGE_HEIGHT
     try:
-        # Convert the raw image data to a NumPy array
+        # If they passed us an ndarray directly, just use it
+        if isinstance(img_bytes, np.ndarray):
+            return img_bytes.copy()
+
+        # Otherwise treat it as raw bytes
         img_array = np.frombuffer(img_bytes, dtype=np.uint8).reshape((IMAGE_HEIGHT, IMAGE_WIDTH, 3))
         # Convert RGBA to RGB by removing the alpha channel and make a copy to ensure writeability
         img_rgb = img_array[:, :, :3].copy()
@@ -158,7 +141,8 @@ def ball_detection(img, model, step_count):
 
         # Run the YOLOv11 model on the image
         with torch.no_grad():
-            results = model(image_np, conf=CONFIDENCE_THRESHOLD, save=COLLECT_INFERENCE_DATA, )
+            results = model(image_np, conf=CONFIDENCE_THRESHOLD, save=COLLECT_INFERENCE_DATA, 
+                            project=f"inference_{step_count}.jpg")
         
         # Process and print detected objects
         result = results[0] # Since there's only one image
@@ -181,229 +165,70 @@ def ball_detection(img, model, step_count):
     return x_center_int
 
 
-def arrival_routine(wheel_motors):
+def get_destination_coordinate(destination_ids):
     """
-    Handles the arrival routine when the robot is close enough to home.
-    Backs up for 1 second, rotates away from home for 1 second,
-    stops the motors, and switches the mode from RETURN_HOME to CHASE_BALL.
+    Given two tag IDs that define a corner, return the (x,y) for 'home'.
+    One simple approach is just to average the corner tags' coordinates.
     """
-    global CHASE_BALL, RETURN_HOME, FORWARD_SPEED, DISTANCE_THRESHOLD
+    if len(destination_ids) != 2:
+        raise ValueError("destination_ids must have exactly two elements")
+    tid1, tid2 = destination_ids
+    (x1, y1) = TAG_POSITIONS[tid1]
+    (x2, y2) = TAG_POSITIONS[tid2]
+    # For a “corner,” often these two tags are close, so just take midpoint:    
+    return ((x1 + x2)/2.0, (y1 + y2)/2.0)
 
-    print(f"Within threshold of {DISTANCE_THRESHOLD} mm. Initiating arrival routine: backing up and rotating away.")
-
-    # Back up for 1 second.
-    wheel_motors.setVelocity(-FORWARD_SPEED, -FORWARD_SPEED)
-    time.sleep(1.0)  # Back up for 1 second
-
-    # Rotate away from home for 1 second.
-    print("Rotating away from home position...")
-    wheel_motors.setVelocity(FORWARD_SPEED, -FORWARD_SPEED)
-    time.sleep(1.0)  # Rotate for 1 second
-
-    # Stop motors and switch modes.
-    wheel_motors.setVelocity(0, 0)
-    CHASE_BALL = True
-    RETURN_HOME = False
-    print("Destination reached. Switching to CHASE_BALL mode.")
-
-
-def get_destination_coordinate():
-    """
-    Returns the pre-encoded (x, y) home coordinate based on the global HOME_IDS.
-    """
-    global HOME_POSITIONS, HOME_IDS
-    key = tuple(sorted(HOME_IDS))
-    try:
-        return HOME_POSITIONS[key]
-    except KeyError:
-        raise ValueError(f"HOME_IDS {HOME_IDS} do not map to a known corner.")
-    
-
-def return_home_deterministic(img_bytes, camera, wheel_motors, step):
-    global LAST_TAG_SIDE, ROTATION_SPEED, TURN_SPEED_RATIO, DISTANCE_THRESHOLD, HOME_TAGS_CENTER_TOLERANCE, IMAGE_WIDTH, RETURN_HOME, CHASE_BALL, HOME_IDS
-
-    # 1) Convert bytes → NumPy array.
-    img_array = bytes_to_numpy(img_bytes)
-    if img_array is None:
-        print("ERROR: Failed to convert image bytes to a NumPy array.")
-        return
-
-    # 2) Detect AprilTags in the image.
-    OUTPUT_PATH = f"annotated_image_{step}.jpg"
-    detected_tags = detect_apriltags(image=img_array, output_path=OUTPUT_PATH)
-    if not detected_tags:
-        # No tags detected; fallback to search/spin in place.
-        if LAST_TAG_SIDE == "left":
-            print("No tags detected; rotating left to search.")
-            wheel_motors.setVelocity(TURN_SPEED_RATIO * ROTATION_SPEED, ROTATION_SPEED)
-        else:
-            print("No tags detected; rotating right to search.")
-            wheel_motors.setVelocity(ROTATION_SPEED, TURN_SPEED_RATIO * ROTATION_SPEED)
-        return
-
-    home_tags = [tag for tag in detected_tags if tag['id'] in HOME_IDS]
-    for tag in home_tags:
-        if tag['pose']['distance'] < DISTANCE_THRESHOLD:
-            print("Arrived Home!")
-            print("Arrived Home!")
-            print("Arrived Home!")
-            wheel_motors.setVelocity(0, 0)
-            RETURN_HOME = False
-            CHASE_BALL = True
-            return
-
-    # 3) Check if any home tag is centered.
-    image_center_x = IMAGE_WIDTH // 2
-    home_tags_in_center = [tag for tag in detected_tags 
-                           if tag['id'] in HOME_IDS and abs(tag['center'][0] - image_center_x) < HOME_TAGS_CENTER_TOLERANCE]
-    if home_tags_in_center:
-        print("Home tag is centered; moving forward.")
-        wheel_motors.setVelocity(FORWARD_SPEED, FORWARD_SPEED)
-        return
-
-    # 4) No centered home tag; use all detected tags to decide turn direction.
-    # Sort all tags by the x-coordinate of their center.
-    detected_tags_sorted = sorted(detected_tags, key=lambda tag: tag['center'][0])
-    mid_index = len(detected_tags_sorted) // 2
-    middle_tag = detected_tags_sorted[mid_index]
-    middle_id = middle_tag['id']
-    
-    # Decide turn direction by comparing the middle tag's id with the two home_ids.
-    if abs(middle_id - HOME_IDS[0]) < abs(middle_id - HOME_IDS[1]):
-        print(f"Middle tag id {middle_id} is closer to {HOME_IDS[0]} (turn right).")
-        LAST_TAG_SIDE = "right"
-        wheel_motors.setVelocity(ROTATION_SPEED, ROTATION_SPEED * TURN_SPEED_RATIO)
-    else:
-        print(f"Middle tag id {middle_id} is closer to {HOME_IDS[1]} (turn left).")
-        LAST_TAG_SIDE = "left"
-        wheel_motors.setVelocity(ROTATION_SPEED * TURN_SPEED_RATIO, ROTATION_SPEED)
-
-
-
-def return_home_visual_servo(img_bytes, camera, wheel_motors, step):
-    """
-    Visual-servo approach to drive home without relying solely on detecting the home corner tags.
-    1) If home tag(s) are visible, servo on them directly.
-    2) Otherwise, servo on whichever side tags are visible (top/right/bottom/left).
-       Because the arena is structured, even partial side info can guide the robot
-       toward the home corner.
-    """
-    global LAST_TAG_SIDE, ROTATION_SPEED, TURN_SPEED_RATIO, DISTANCE_THRESHOLD, HOME_IDS, FORWARD_SPEED, STEER_GAIN
-
-    # 1) Convert bytes → NumPy array.
-    img_array = bytes_to_numpy(img_bytes, camera)
-    if img_array is None:
-        print("ERROR: Failed to convert image bytes to a NumPy array.")
-        return
-
-    # 2) Detect AprilTags in the image.
-    OUTPUT_PATH = f"annotated_image_{step}.jpg"
-    detected_tags = detect_apriltags(image=img_array, output_path=OUTPUT_PATH)
-    if not detected_tags:
-        # No tags detected; fallback to search/spin in place.
-        if LAST_TAG_SIDE == "left":
-            print("No tags detected; rotating left to search.")
-            wheel_motors.setVelocity(TURN_SPEED_RATIO * ROTATION_SPEED, ROTATION_SPEED)
-        else:
-            print("No tags detected; rotating right to search.")
-            ROTATION_SPEED.setVelocity(ROTATION_SPEED, TURN_SPEED_RATIO * ROTATION_SPEED)
-        return
-
-    # 3) Check for home tags first.
-    home_tags = [tag for tag in detected_tags if tag['id'] in HOME_IDS]
-
-    # If we found the home tags, we can servo on them directly.
-    if home_tags:
-        print("Home tag(s) detected. Steering directly toward home corner.")
-        tags_to_servo = home_tags
-    else:
-        # 4) Otherwise, we do a fallback approach using side tags.
-        # Determine which side (or sides) we see the most.
-        side_dict = {"top": [], "right": [], "bottom": [], "left": []}
-        for tag in detected_tags:
-            tid = tag['id']
-            if tid in TOP_TAGS:
-                side_dict["top"].append(tag)
-            elif tid in RIGHT_TAGS:
-                side_dict["right"].append(tag)
-            elif tid in BOTTOM_TAGS:
-                side_dict["bottom"].append(tag)
-            elif tid in LEFT_TAGS:
-                side_dict["left"].append(tag)
-
-        # Pick whichever side has the most tags detected (simple heuristic).
-        best_side = max(side_dict.keys(), key=lambda s: len(side_dict[s]))
-        tags_to_servo = side_dict[best_side]
-
-        if not tags_to_servo:
-            # If for some reason all sides are empty (unlikely if we have tags),
-            # fallback to spinning in place.
-            print("No home corner tags or side tags recognized. Searching...")
-            if LAST_TAG_SIDE == "left":
-                wheel_motors.setVelocity(TURN_SPEED_RATIO * ROTATION_SPEED, ROTATION_SPEED)
-            else:
-                wheel_motors.setVelocity(ROTATION_SPEED, TURN_SPEED_RATIO * ROTATION_SPEED)
-            return
-        else:
-            print(f"No home tags visible. Using {best_side.upper()} side tags to navigate.")
-
-    # 5) (Optional) Check average distance from the tags_to_servo if 'dist' is available.
-    # If it's below threshold, call arrival_routine().
-    # E.g., if all tags in tags_to_servo have "dist" info:
-    if all("dist" in tag for tag in tags_to_servo):
-        avg_distance = sum(tag["dist"] for tag in tags_to_servo) / len(tags_to_servo)
-        print(f"Average distance to corner/side: {avg_distance:.1f} mm")
-        if avg_distance < DISTANCE_THRESHOLD:
-            arrival_routine(wheel_motors)
-            return
-
-    # 6) Visual servo on whichever tags we ended up with (home or side).
-    avg_x = sum(tag['center'][0] for tag in tags_to_servo) / len(tags_to_servo)
-    image_center_x = img_array.shape[1] / 2.0
-    error_x = avg_x - image_center_x
-
-    # Update LAST_TAG_SIDE based on the horizontal error.
-    if error_x < 0:
-        LAST_TAG_SIDE = "left"
-    else:
-        LAST_TAG_SIDE = "right"
-
-    # Simple proportional controller on the horizontal error.
-    turn_correction = STEER_GAIN * error_x
-
-    left_speed = FORWARD_SPEED - turn_correction
-    right_speed = FORWARD_SPEED + turn_correction
-
-    wheel_motors.setVelocity(left_speed, right_speed)
-
-    print(
-        f"Visual Servo: error_x={error_x:.2f}, turn={turn_correction:.2f}, "
-        f"left={left_speed:.2f}, right={right_speed:.2f}"
-    )
 
 def return_home(img_bytes, wheel_motors, step, destination_ids=[0, 23]):
-    global CHASE_BALL, RETURN_HOME, DISTANCE_THRESHOLD, FORWARD_SPEED, ROTATION_SPEED, MAX_MOTOR_SPEED, ANGLE_GAIN
-
+    global CHASE_BALL, RETURN_HOME, DISTANCE_THRESHOLD, FORWARD_SPEED, ROTATION_SPEED, MAX_MOTOR_SPEED, ANGLE_GAIN, LAST_HOME_ROTATION_DIR, HOME_TURN_RATIO
+    print(f">>> return_home STEP {step}: enter")
     # 1) Convert bytes -> NumPy array
     img_array = bytes_to_numpy(img_bytes)
+    print(f">>> return_home STEP {step}: after bytes_to_numpy, img_array is", type(img_array))
     if img_array is None:
         print("Failed to convert image bytes to NumPy array.")
         return
 
     # 2) Detect AprilTags in the image
     OUTPUT_PATH = f"annotated_image_{step}.jpg"
-    detected_tags = detect_apriltags(image=img_array, output_path=OUTPUT_PATH)
+    
+    print(f">>> return_home STEP {step}: about to safe_detect_apriltags")
+    detected_tags = safe_detect_apriltags(img_array, OUTPUT_PATH)
+    print(f">>> return_home STEP {step}: safe_detect_apriltags returned {len(detected_tags)} tags")
+    
+    
+    # print(f">>> return_home STEP {step}: about to detect_apriltags")
+    # try:
+    #     detected_tags = detect_apriltags(image=img_array, output_path=OUTPUT_PATH)
+    #     print(f">>> return_home STEP {step}: detect_apriltags returned {len(detected_tags)} tags")
+    # except Exception as e:
+    #     print(f">>> return_home STEP {step}: detect_apriltags threw: {e}")
+    #     detected_tags = []
+    
     if not detected_tags:
         print("No tags detected; rotating in place to find tags.")
-        # Slowly rotate in place until the next detection
-        wheel_motors.setVelocity(-ROTATION_SPEED, ROTATION_SPEED)
+        # Rotate in the last known direction
+        if LAST_HOME_ROTATION_DIR == 1:
+            print("- MOVE RIGHT (default rotation: no tags detected)")
+            wheel_motors.setVelocity( ROTATION_SPEED, ROTATION_SPEED * HOME_TURN_RATIO)  # rotate right
+        else:
+            print("- MOVE LEFT (default rotation: no tags detected)")
+            wheel_motors.setVelocity( ROTATION_SPEED * HOME_TURN_RATIO,  ROTATION_SPEED)  # rotate left
         return
 
     # 3) Estimate the robot pose (x, y, theta) in mm and radians
+    print(f">>> return_home STEP {step}: about to estimate_robot_pose")
     pose = estimate_robot_pose(detected_tags)
+    print(f">>> return_home STEP {step}: estimate_robot_pose returned", pose)
     if pose is None:
         print("Could not estimate robot pose from detections.")
-        wheel_motors.setVelocity(-ROTATION_SPEED, ROTATION_SPEED)
+        # Rotate in the last known direction
+        if LAST_HOME_ROTATION_DIR == 1:
+            print("- MOVE RIGHT (default rotation: pose wasn't estimated)")
+            wheel_motors.setVelocity( ROTATION_SPEED, ROTATION_SPEED * HOME_TURN_RATIO)
+        else:
+            print("- MOVE LEFT (default rotation: pose wasn't estimated)")
+            wheel_motors.setVelocity( ROTATION_SPEED * HOME_TURN_RATIO, ROTATION_SPEED)
         return
     robot_x, robot_y, robot_theta = pose
     print(f"Robot estimated at x={robot_x:.1f}, y={robot_y:.1f}, θ={math.degrees(robot_theta):.1f}°")
@@ -447,13 +272,23 @@ def return_home(img_bytes, wheel_motors, step, destination_ids=[0, 23]):
     turn = ANGLE_GAIN * angle_diff
 
     # Flip sign if needed so positive angle => turn left
-    left_speed = base_speed + turn
-    right_speed = base_speed - turn
+    left_speed = base_speed - turn
+    right_speed = base_speed + turn
 
     left_speed = max(-MAX_MOTOR_SPEED, min(MAX_MOTOR_SPEED, left_speed))
     right_speed = max(-MAX_MOTOR_SPEED, min(MAX_MOTOR_SPEED, right_speed))
 
-    wheel_motors.setVelocity(left_speed, right_speed)
+    wheel_motors.setVelocity(left_speed, right_speed + 10)
+    
+    # Update last rotation direction for next time no tags are seen
+    if turn > 0:
+        print("MOVE LEFT - tags detected")
+        LAST_HOME_ROTATION_DIR = -1   # last adjustment was a left turn
+        print("next default rotation - LEFT")
+    elif turn < 0:
+        print("MOVE RIGHT - tags detected")
+        LAST_HOME_ROTATION_DIR = 1    # last adjustment was a right turn
+        print("next default rotation - RIGHT")
 
     print(f"Distance to home = {distance_to_home:.1f} mm, angle diff = {math.degrees(angle_diff):.1f}°")
     print(f"Setting left={left_speed:.2f}, right={right_speed:.2f}")
@@ -501,19 +336,26 @@ def detect_apriltags(image, output_path=None):
     enhanced_gray = enhance_image(image)
 
     # Initialize the AprilTag detector with optimized parameters
-    detector = Detector(
-        families='tag36h11',        # Tag family to detect
-        nthreads=4,                 # Number of threads to use
-        quad_decimate=0.5,          # Lower decimation for higher resolution
-        quad_sigma=0.5,             # Apply Gaussian blur
-        refine_edges=True,          # Refine tag edges
-        decode_sharpening=0.35,     # Increase sharpening
-        debug=0                      # Debug mode (0: off, 1: on)
-    )
-
-    cx = image.shape[1] / 2 # principal point x
-    cy = image.shape[0] / 2 # principal point y
-    tags = detector.detect(enhanced_gray, estimate_tag_pose=True, camera_params=(FX, FY, cx, cy), tag_size=TAG_SIDE_METERS)
+    try:
+        detector = Detector(
+            families='tag36h11',        # Tag family to detect
+            nthreads=4,                 # Number of threads to use
+            quad_decimate=0.5,          # Lower decimation for higher resolution
+            quad_sigma=0.5,             # Apply Gaussian blur
+            refine_edges=True,          # Refine tag edges
+            decode_sharpening=0.35,     # Increase sharpening
+            debug=0                      # Debug mode (0: off, 1: on)
+        )
+        
+        cx = image.shape[1] / 2 # principal point x
+        cy = image.shape[0] / 2 # principal point y
+        print(">>> detect_apriltags: about to call detector.detect()")
+        tags = detector.detect(enhanced_gray, estimate_tag_pose=True, camera_params=(FX, FY, cx, cy), tag_size=TAG_SIDE_METERS)
+        print(f">>> detect_apriltags: returned {len(tags)} tags")
+        
+    except Exception as e:
+        print("caught error: {e}")
+        tags = []
 
     print(f"Detected {len(tags)} AprilTag(s) in the image.")
 
@@ -598,52 +440,56 @@ def detect_apriltags(image, output_path=None):
 
     return sorted_tags
 
+# Run AprilTag detection in a child process so a segfault only kills the child
+def safe_detect_apriltags(image, output_path=None, timeout=2.0):
+    """Call detect_apriltags in a subprocess; on crash or timeout return empty list."""       
+    def worker(img, out, q):
+        # ensure we save annotated images exactly as the original function does
+        global COLLECT_INFERENCE_DATA
+        try:
+            tags = detect_apriltags(img, output_path=out)
+        except Exception:
+            tags = []
+        q.put(tags)
+
+    q = multiprocessing.Queue()
+    p = multiprocessing.Process(target=worker, args=(image, output_path, q))
+    p.start()
+    p.join(timeout)
+    if p.is_alive():
+        p.terminate()
+        print("safe_detect_apriltags: child hung or crashed, skipping this frame.")
+        return []
+    try:
+        return q.get_nowait()
+    except Exception:
+        return []
 
 def estimate_robot_pose(detections):
-    """
-    Given a list of tag detections (each with a known global TAG_POSITIONS[id]
-    and a relative robot->tag transform), estimate the robot's global pose.
-    
-    For simplicity, we might:
-       1) For each detected tag, know the tag's (x_t, y_t).
-       2) Use the detection's distance + bearing to guess the robot's position
-          (x_r, y_r) = (x_t, y_t) - relative_offset(...)
-       3) Possibly average the positions from each detection.
-       4) Estimate heading from e.g. the tag's yaw or from multiple detections.
-    """
     if not detections:
-        return None  # No pose possible
-
-    # Very naive example: average the implied (x_r, y_r) from each tag
-    robot_positions = []
-
-    for det in detections:
-        tid = det['id']
-        if tid not in TAG_POSITIONS:
-            continue
-        tag_x, tag_y = TAG_POSITIONS[tid]
-        # Suppose 'pose' has 'distance' (r) and 'bearing' (b) in *robot* frame
-        # so the robot is (r,b) away from the tag in polar coords (tag as origin).
-        r = det['pose']['distance']
-        b = det['pose']['bearing']
-
-        x_r = tag_x - r * math.cos(b)
-        y_r = tag_y - r * math.sin(b)
-
-        robot_positions.append((x_r, y_r))
-
-    # Average them
-    if robot_positions:
-        x_est = sum(p[0] for p in robot_positions) / len(robot_positions)
-        y_est = sum(p[1] for p in robot_positions) / len(robot_positions)
-        # Average the yaw values properly over all detections.
-        sum_sin = sum(math.sin(det['pose'].get('yaw', 0.0)) for det in detections)
-        sum_cos = sum(math.cos(det['pose'].get('yaw', 0.0)) for det in detections)
-        theta_est = math.atan2(sum_sin, sum_cos)
-        return (x_est, y_est, theta_est)
-    else:
         return None
 
+    # average X,Y exactly as you have:
+    robot_positions = []
+    for det in detections:
+        tid = det['id']
+        if tid not in TAG_POSITIONS: continue
+        tx, ty = TAG_POSITIONS[tid]
+        r = det['pose']['distance']
+        b = det['pose']['bearing']
+        x_r = tx - r * math.cos(b)
+        y_r = ty - r * math.sin(b)
+        robot_positions.append((x_r, y_r))
+
+    x_est = sum(p[0] for p in robot_positions) / len(robot_positions)
+    y_est = sum(p[1] for p in robot_positions) / len(robot_positions)
+
+    # circular‐mean the yaws:
+    sin_sum = sum(math.sin(det['pose']['yaw']) for det in detections)
+    cos_sum = sum(math.cos(det['pose']['yaw']) for det in detections)
+    theta_est = math.atan2(sin_sum, cos_sum)
+
+    return (x_est, y_est, theta_est)
 
 class Motor:
     def __init__(self, name, ser):
@@ -717,14 +563,14 @@ def convert_model_to_torchscript(model):
 def main():
     try:
         # Initialise global variables
-        global CHASE_BALL, RETURN_HOME, FORWARD_SPEED, ROTATION_SPEED, TURN_RATIO, COMPETITION, COLLECT_DATA, GO_HOME_TIMER, IMAGE_WIDTH, IMAGE_HEIGHT, REMOVE_CAM_BUFFER
+        global CHASE_BALL, RETURN_HOME, FORWARD_SPEED, ROTATION_SPEED, TURN_RATIO, COMPETITION, COLLECT_DATA, GO_HOME_TIMER, IMAGE_WIDTH, IMAGE_HEIGHT, REMOVE_CAM_BUFFER, LAST_BALL_ROTATION_DIR
         # Initialise local variables
         step_count = 0
         prev_x_positions = []
         print("Starting robot...")
         
         # Load object detection model
-        model = load_model(MODEL_PATH)
+        model = YOLO(MODEL_PATH, task='detect')
         print("1) Object detection model loaded successfully.")
         
         ser = serial.Serial('/dev/ttyACM0', 115200, timeout=1)
@@ -773,24 +619,38 @@ def main():
                     x_positions = prev_x_positions.copy()
                     prev_x_positions = a.copy()
                 elif not x_positions and not prev_x_positions:
-                    print("Rotate right in place to find ball")
-                    wheel_motors.setVelocity(ROTATION_SPEED, -ROTATION_SPEED)
+                    print("No ball detected; rotating in place to find ball.")
+                    # Rotate in the last known ball-search direction
+                    if LAST_BALL_ROTATION_DIR == 1:
+                        wheel_motors.setVelocity( ROTATION_SPEED, -ROTATION_SPEED)  # rotate right
+                    else:
+                        wheel_motors.setVelocity(-ROTATION_SPEED,  ROTATION_SPEED)  # rotate left
                 
                 if x_positions:
                     if x_positions[-1] > IMAGE_WIDTH / 2:
                         print("Move to the right")
                         wheel_motors.setVelocity(FORWARD_SPEED, FORWARD_SPEED * TURN_RATIO)
+                        LAST_BALL_ROTATION_DIR = 1
                     else:
                         print("Move to the left")
                         wheel_motors.setVelocity(FORWARD_SPEED * TURN_RATIO, FORWARD_SPEED)
+                        LAST_BALL_ROTATION_DIR = -1
             elif RETURN_HOME:
-                return_home_deterministic(img, cap, wheel_motors, step=step_count)
-                # return_home(img, wheel_motors, step=step_count, destination_ids=HOME_IDS)
-                # return_home_visual_servo(img, camera, left_motor, right_motor, robot,
-                #             step=step_count)
-                if CHASE_BALL:
-                    chase_start_time = time.time()
-                    print("Returned home. Switching back to BALL_CHASE mode and resetting timer.")
+                # Skip or wrap any error so we never crash on a bad frame
+                if img is None:
+                    print("No frame available; skipping RETURN_HOME this iteration.")
+                else:
+                    try:
+                        # convert the OpenCV BGR ndarray into raw bytes for return_home
+                        # return_home(img.tobytes(), wheel_motors, step=step_count, destination_ids=HOME_IDS)
+                        print(f">>> main loop: about to return_home at step {step_count}")
+                        return_home(img.tobytes(), wheel_motors, step=step_count, destination_ids=HOME_IDS)
+                        print(f">>> main loop: returned from return_home at step {step_count}")
+                    except Exception as e:
+                        print(f"Error in return_home: {e}; skipping this frame.")
+                    if CHASE_BALL:
+                        chase_start_time = time.time()
+                        print("Returned home. Switching back to BALL_CHASE mode and resetting timer.")
     
     except Exception as e:
         print(f"Error occurred: {e}")
