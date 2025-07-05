@@ -19,21 +19,21 @@
     a. Tools -> Preferences -> Python command: Enter the path to the conda env's python.exe (e.g. C:\Users\Karl\anaconda3\envs\unibots-env\python.exe)
 9) Hit "Play" in WeBots
 
-## Simulation Image Preview
+## Simulation Image Previe
 ### Digital Twin Competition Arena
-![Simulation-Preview](data/simulation.png)
+![Simulation-Preview](data/simulation.jpg)
 ### Object Tracking And Chasing Balls
-![Object-Tracking](data/simulation-object-tracking.png)
+![Object-Tracking](data/simulation-object-tracking.jpg)
 ### April Tag Detection to Return Home
-![April-Tag-Detection](data/simulation-april-tag-detection.png)
+![April-Tag-Detection](data/simulation-april-tag-detection.jpg)
 
 ## Real Robot Preview
 ### Our 3D-printed Robot
-![Robot-Image](data/real-robot-image.jpeg)
+![Robot-Image](data/real-robot-image.jpg)
 ### Object Tracking And Chasing Balls
-![Object-Tracking](data/real-object-tracking.png)
+![Object-Tracking](data/real-object-tracking.jpg)
 ### April Tag Detection to Return Home
-![April-Tag-Detection](data/real-april-tag-detection.png)
+![April-Tag-Detection](data/real-april-tag-detection.jpg)
 
 ## Our Team
-![Team-Image](data/team-image.jpeg)
+![Team-Image](data/team-image.jpg)
