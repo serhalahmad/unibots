@@ -14,7 +14,7 @@ void UnibotsServo::detach()
 
 void UnibotsServo::set_angle(int angle)
 {
-    angle = constrain(angle, 0, 180); // ensure valid range
+    angle = constrain(angle, -360, 360); // ensure valid range
     _servo.write(angle);
     _current_angle = angle;
 }
